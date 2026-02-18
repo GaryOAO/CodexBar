@@ -5,6 +5,7 @@ extension UsageStore {
     private nonisolated static let codexCreditsMonthlyCapTokens: Double = 1000
     private nonisolated static let persistenceCoordinator = PlanUtilizationHistoryPersistenceCoordinator()
     private nonisolated static let planUtilizationMinSampleIntervalSeconds: TimeInterval = 60 * 60
+    private nonisolated static let planUtilizationMaxSamples: Int = 24 * 400
 
     func planUtilizationHistory(for provider: UsageProvider) -> [PlanUtilizationHistorySample] {
         self.planUtilizationHistory[provider] ?? []
@@ -21,7 +22,7 @@ extension UsageStore {
 
         var snapshotToPersist: [UsageProvider: [PlanUtilizationHistorySample]]?
         await MainActor.run {
-            var history = self.planUtilizationHistory[provider] ?? []
+            let history = self.planUtilizationHistory[provider] ?? []
             let resolvedCredits = provider == .codex ? credits : nil
             let sample = PlanUtilizationHistorySample(
                 capturedAt: now,
@@ -32,43 +33,72 @@ extension UsageStore {
                     snapshot: snapshot,
                     credits: resolvedCredits))
 
-            if let last = history.last,
-               now.timeIntervalSince(last.capturedAt) < Self.planUtilizationMinSampleIntervalSeconds,
-               Self.nearlyEqual(last.dailyUsedPercent, sample.dailyUsedPercent),
-               Self.nearlyEqual(last.weeklyUsedPercent, sample.weeklyUsedPercent)
-            {
-                if Self.nearlyEqual(last.monthlyUsedPercent, sample.monthlyUsedPercent) {
-                    return
-                }
-
-                if provider == .codex {
-                    if last.monthlyUsedPercent != nil, sample.monthlyUsedPercent == nil {
-                        return
-                    }
-                    if last.monthlyUsedPercent == nil, sample.monthlyUsedPercent != nil {
-                        history[history.index(before: history.endIndex)] = sample
-                        self.planUtilizationHistory[provider] = history
-                        snapshotToPersist = self.planUtilizationHistory
-                        return
-                    }
-                }
+            guard let updatedHistory = Self.updatedPlanUtilizationHistory(
+                provider: provider,
+                existingHistory: history,
+                sample: sample,
+                now: now)
+            else {
+                return
             }
 
-            history.append(sample)
-
-            // Keep at least ~13 months of hourly points per provider.
-            let maxSamples = 24 * 400
-            if history.count > maxSamples {
-                history.removeFirst(history.count - maxSamples)
-            }
-
-            self.planUtilizationHistory[provider] = history
+            self.planUtilizationHistory[provider] = updatedHistory
             snapshotToPersist = self.planUtilizationHistory
         }
 
         guard let snapshotToPersist else { return }
         await Self.persistenceCoordinator.enqueue(snapshotToPersist)
     }
+
+    private nonisolated static func updatedPlanUtilizationHistory(
+        provider: UsageProvider,
+        existingHistory: [PlanUtilizationHistorySample],
+        sample: PlanUtilizationHistorySample,
+        now: Date) -> [PlanUtilizationHistorySample]?
+    {
+        var history = existingHistory
+
+        if let last = history.last,
+           now.timeIntervalSince(last.capturedAt) < self.planUtilizationMinSampleIntervalSeconds,
+           self.nearlyEqual(last.dailyUsedPercent, sample.dailyUsedPercent),
+           self.nearlyEqual(last.weeklyUsedPercent, sample.weeklyUsedPercent)
+        {
+            if self.nearlyEqual(last.monthlyUsedPercent, sample.monthlyUsedPercent) {
+                return nil
+            }
+
+            if provider == .codex {
+                if last.monthlyUsedPercent != nil, sample.monthlyUsedPercent == nil {
+                    return nil
+                }
+                if last.monthlyUsedPercent == nil, sample.monthlyUsedPercent != nil {
+                    history[history.index(before: history.endIndex)] = sample
+                    return history
+                }
+            }
+        }
+
+        history.append(sample)
+        if history.count > self.planUtilizationMaxSamples {
+            history.removeFirst(history.count - self.planUtilizationMaxSamples)
+        }
+        return history
+    }
+
+    #if DEBUG
+    nonisolated static func _updatedPlanUtilizationHistoryForTesting(
+        provider: UsageProvider,
+        existingHistory: [PlanUtilizationHistorySample],
+        sample: PlanUtilizationHistorySample,
+        now: Date) -> [PlanUtilizationHistorySample]?
+    {
+        self.updatedPlanUtilizationHistory(
+            provider: provider,
+            existingHistory: existingHistory,
+            sample: sample,
+            now: now)
+    }
+    #endif
 
     nonisolated static func planHistoryMonthlyUsedPercent(
         provider: UsageProvider,

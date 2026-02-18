@@ -136,11 +136,7 @@ struct UsageStorePlanUtilizationTests {
     }
 
     @Test
-    @MainActor
-    func codexWithinWindowPromotesMonthlyFromNilWithoutAppending() async {
-        let store = self.makeUsageStore(suite: "UsageStorePlanUtilizationTests-promoteMonthly")
-        store.planUtilizationHistory[.codex] = []
-
+    func codexWithinWindowPromotesMonthlyFromNilWithoutAppending() throws {
         let identity = ProviderIdentitySnapshot(
             providerID: .codex,
             accountEmail: nil,
@@ -153,31 +149,43 @@ struct UsageStorePlanUtilizationTests {
             updatedAt: Date(),
             identity: identity)
         let now = Date()
+        let nilMonthly = PlanUtilizationHistorySample(
+            capturedAt: now,
+            dailyUsedPercent: nil,
+            weeklyUsedPercent: nil,
+            monthlyUsedPercent: nil)
+        let monthlyValue = try #require(
+            UsageStore.planHistoryMonthlyUsedPercent(
+                provider: .codex,
+                snapshot: snapshot,
+                credits: CreditsSnapshot(remaining: 640, events: [], updatedAt: now)))
+        let promotedMonthly = PlanUtilizationHistorySample(
+            capturedAt: now.addingTimeInterval(300),
+            dailyUsedPercent: nil,
+            weeklyUsedPercent: nil,
+            monthlyUsedPercent: monthlyValue)
 
-        await store.recordPlanUtilizationHistorySample(
-            provider: .codex,
-            snapshot: snapshot,
-            credits: nil,
-            now: now)
-        await store.recordPlanUtilizationHistorySample(
-            provider: .codex,
-            snapshot: snapshot,
-            credits: CreditsSnapshot(remaining: 640, events: [], updatedAt: now),
-            now: now.addingTimeInterval(300))
+        let initial = try #require(
+            UsageStore._updatedPlanUtilizationHistoryForTesting(
+                provider: .codex,
+                existingHistory: [],
+                sample: nilMonthly,
+                now: now))
+        let updated = try #require(
+            UsageStore._updatedPlanUtilizationHistoryForTesting(
+                provider: .codex,
+                existingHistory: initial,
+                sample: promotedMonthly,
+                now: now.addingTimeInterval(300)))
 
-        let history = store.planUtilizationHistory(for: .codex)
-        #expect(history.count == 1)
-        let monthly = history.last?.monthlyUsedPercent
+        #expect(updated.count == 1)
+        let monthly = updated.last?.monthlyUsedPercent
         #expect(monthly != nil)
         #expect(abs((monthly ?? 0) - 36) < 0.001)
     }
 
     @Test
-    @MainActor
-    func codexWithinWindowIgnoresNilMonthlyAfterKnownValue() async {
-        let store = self.makeUsageStore(suite: "UsageStorePlanUtilizationTests-ignoreNilMonthly")
-        store.planUtilizationHistory[.codex] = []
-
+    func codexWithinWindowIgnoresNilMonthlyAfterKnownValue() throws {
         let identity = ProviderIdentitySnapshot(
             providerID: .codex,
             accountEmail: nil,
@@ -190,51 +198,38 @@ struct UsageStorePlanUtilizationTests {
             updatedAt: Date(),
             identity: identity)
         let now = Date()
+        let monthlyValue = try #require(
+            UsageStore.planHistoryMonthlyUsedPercent(
+                provider: .codex,
+                snapshot: snapshot,
+                credits: CreditsSnapshot(remaining: 640, events: [], updatedAt: now)))
+        let knownMonthly = PlanUtilizationHistorySample(
+            capturedAt: now,
+            dailyUsedPercent: nil,
+            weeklyUsedPercent: nil,
+            monthlyUsedPercent: monthlyValue)
+        let nilMonthly = PlanUtilizationHistorySample(
+            capturedAt: now.addingTimeInterval(300),
+            dailyUsedPercent: nil,
+            weeklyUsedPercent: nil,
+            monthlyUsedPercent: nil)
 
-        await store.recordPlanUtilizationHistorySample(
+        let initial = try #require(
+            UsageStore._updatedPlanUtilizationHistoryForTesting(
+                provider: .codex,
+                existingHistory: [],
+                sample: knownMonthly,
+                now: now))
+        let updated = UsageStore._updatedPlanUtilizationHistoryForTesting(
             provider: .codex,
-            snapshot: snapshot,
-            credits: CreditsSnapshot(remaining: 640, events: [], updatedAt: now),
-            now: now)
-        await store.recordPlanUtilizationHistorySample(
-            provider: .codex,
-            snapshot: snapshot,
-            credits: nil,
+            existingHistory: initial,
+            sample: nilMonthly,
             now: now.addingTimeInterval(300))
 
-        let history = store.planUtilizationHistory(for: .codex)
-        #expect(history.count == 1)
-        let monthly = history.last?.monthlyUsedPercent
+        #expect(updated == nil)
+        #expect(initial.count == 1)
+        let monthly = initial.last?.monthlyUsedPercent
         #expect(monthly != nil)
         #expect(abs((monthly ?? 0) - 36) < 0.001)
-    }
-
-    @MainActor
-    private func makeUsageStore(suite: String) -> UsageStore {
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        let configStore = testConfigStore(suiteName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: configStore,
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore(),
-            codexCookieStore: InMemoryCookieHeaderStore(),
-            claudeCookieStore: InMemoryCookieHeaderStore(),
-            cursorCookieStore: InMemoryCookieHeaderStore(),
-            opencodeCookieStore: InMemoryCookieHeaderStore(),
-            factoryCookieStore: InMemoryCookieHeaderStore(),
-            minimaxCookieStore: InMemoryMiniMaxCookieStore(),
-            minimaxAPITokenStore: InMemoryMiniMaxAPITokenStore(),
-            kimiTokenStore: InMemoryKimiTokenStore(),
-            kimiK2TokenStore: InMemoryKimiK2TokenStore(),
-            augmentCookieStore: InMemoryCookieHeaderStore(),
-            ampCookieStore: InMemoryCookieHeaderStore(),
-            copilotTokenStore: InMemoryCopilotTokenStore(),
-            tokenAccountStore: InMemoryTokenAccountStore())
-        return UsageStore(
-            fetcher: UsageFetcher(environment: [:]),
-            browserDetection: BrowserDetection(cacheTTL: 0),
-            settings: settings)
     }
 }
