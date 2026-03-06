@@ -2,6 +2,7 @@ import Foundation
 
 public enum ProviderTokenSource: String, Sendable {
     case environment
+    case authFile
 }
 
 public struct ProviderTokenResolution: Sendable {
@@ -47,6 +48,13 @@ public enum ProviderTokenResolver {
 
     public static func kimiK2Token(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         self.kimiK2Resolution(environment: environment)?.token
+    }
+
+    public static func kiloToken(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        authFileURL: URL? = nil) -> String?
+    {
+        self.kiloResolution(environment: environment, authFileURL: authFileURL)?.token
     }
 
     public static func warpToken(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
@@ -116,6 +124,19 @@ public enum ProviderTokenResolver {
         environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
     {
         self.resolveEnv(KimiK2SettingsReader.apiKey(environment: environment))
+    }
+
+    public static func kiloResolution(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        authFileURL: URL? = nil) -> ProviderTokenResolution?
+    {
+        if let resolution = self.resolveEnv(KiloSettingsReader.apiKey(environment: environment)) {
+            return resolution
+        }
+        if let token = KiloSettingsReader.authToken(authFileURL: authFileURL) {
+            return ProviderTokenResolution(token: token, source: .authFile)
+        }
+        return nil
     }
 
     public static func warpResolution(

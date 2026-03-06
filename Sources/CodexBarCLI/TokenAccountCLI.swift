@@ -154,6 +154,11 @@ struct TokenAccountCLIContext {
         case .zai:
             return self.makeSnapshot(
                 zai: ProviderSettingsSnapshot.ZaiProviderSettings(apiRegion: self.resolveZaiRegion(config)))
+        case .kilo:
+            return self.makeSnapshot(
+                kilo: ProviderSettingsSnapshot.KiloProviderSettings(
+                    usageDataSource: Self.kiloUsageDataSource(from: config?.source),
+                    extrasEnabled: Self.kiloExtrasEnabled(from: config)))
         case .jetbrains:
             return self.makeSnapshot(
                 jetbrains: ProviderSettingsSnapshot.JetBrainsProviderSettings(
@@ -172,6 +177,7 @@ struct TokenAccountCLIContext {
         factory: ProviderSettingsSnapshot.FactoryProviderSettings? = nil,
         minimax: ProviderSettingsSnapshot.MiniMaxProviderSettings? = nil,
         zai: ProviderSettingsSnapshot.ZaiProviderSettings? = nil,
+        kilo: ProviderSettingsSnapshot.KiloProviderSettings? = nil,
         kimi: ProviderSettingsSnapshot.KimiProviderSettings? = nil,
         augment: ProviderSettingsSnapshot.AugmentProviderSettings? = nil,
         amp: ProviderSettingsSnapshot.AmpProviderSettings? = nil,
@@ -187,6 +193,7 @@ struct TokenAccountCLIContext {
             factory: factory,
             minimax: minimax,
             zai: zai,
+            kilo: kilo,
             kimi: kimi,
             augment: augment,
             amp: amp,
@@ -318,5 +325,22 @@ struct TokenAccountCLIContext {
             return .international
         }
         return AlibabaCodingPlanAPIRegion(rawValue: raw) ?? .international
+    }
+
+    private static func kiloUsageDataSource(from source: ProviderSourceMode?) -> KiloUsageDataSource {
+        guard let source else { return .auto }
+        switch source {
+        case .auto, .web, .oauth:
+            return .auto
+        case .api:
+            return .api
+        case .cli:
+            return .cli
+        }
+    }
+
+    private static func kiloExtrasEnabled(from config: ProviderConfig?) -> Bool {
+        guard self.kiloUsageDataSource(from: config?.source) == .auto else { return false }
+        return config?.extrasEnabled ?? false
     }
 }

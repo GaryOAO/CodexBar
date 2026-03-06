@@ -17,6 +17,8 @@ public enum ProviderConfigEnvironment {
             env[MiniMaxAPISettingsReader.apiTokenKey] = apiKey
         case .alibaba:
             env[AlibabaCodingPlanSettingsReader.apiTokenKey] = apiKey
+        case .kilo:
+            env[KiloSettingsReader.apiTokenKey] = apiKey
         case .kimik2:
             if let key = KimiK2SettingsReader.apiKeyEnvironmentKeys.first {
                 env[key] = apiKey
