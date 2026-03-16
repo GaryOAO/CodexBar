@@ -23,7 +23,8 @@ extension UsageStore {
     {
         guard provider == .codex || provider == .claude else { return }
 
-        let accountKey = Self.planUtilizationAccountKey(provider: provider, account: account)
+        let preferredAccount = account ?? self.settings.selectedTokenAccount(for: provider)
+        let accountKey = Self.planUtilizationAccountKey(provider: provider, account: preferredAccount)
             ?? Self.planUtilizationIdentityAccountKey(provider: provider, snapshot: snapshot)
         var snapshotToPersist: [UsageProvider: PlanUtilizationHistoryBuckets]?
         await MainActor.run {

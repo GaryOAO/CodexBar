@@ -451,17 +451,13 @@ struct UsageStorePlanUtilizationTests {
 
     @MainActor
     @Test
-    func recordPlanHistoryWithoutExplicitAccountPrefersSnapshotIdentityOverSelectedTokenAccount() async throws {
+    func recordPlanHistoryWithoutExplicitAccountUsesSelectedTokenAccountBucket() async throws {
         let store = Self.makeStore()
         store.settings.addTokenAccount(provider: .claude, label: "Alice", token: "alice-token")
         store.settings.addTokenAccount(provider: .claude, label: "Bob", token: "bob-token")
         store.settings.setActiveTokenAccountIndex(1, for: .claude)
 
         let aliceSnapshot = Self.makeSnapshot(provider: .claude, email: "alice@example.com")
-        let aliceIdentityKey = try #require(
-            UsageStore._planUtilizationAccountKeyForTesting(
-                provider: .claude,
-                snapshot: aliceSnapshot))
         let selectedTokenKey = try #require(
             store.settings.selectedTokenAccount(for: .claude).flatMap {
                 UsageStore._planUtilizationTokenAccountKeyForTesting(provider: .claude, account: $0)
@@ -473,8 +469,7 @@ struct UsageStorePlanUtilizationTests {
             now: Date(timeIntervalSince1970: 1_700_000_000))
 
         let buckets = try #require(store.planUtilizationHistory[.claude])
-        #expect(buckets.accounts[aliceIdentityKey]?.count == 1)
-        #expect(buckets.accounts[selectedTokenKey] == nil)
+        #expect(buckets.accounts[selectedTokenKey]?.count == 1)
     }
 
     @MainActor
