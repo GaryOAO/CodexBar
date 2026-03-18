@@ -82,11 +82,13 @@ extension UsageStore {
         sample: PlanUtilizationHistorySample) -> [PlanUtilizationHistorySample]?
     {
         var history = existingHistory
-        let sampleHourBucket = self.planUtilizationHourBucket(for: sample.capturedAt)
+        let insertionIndex = history.firstIndex(where: { $0.capturedAt > sample.capturedAt }) ?? history.endIndex
 
-        if let matchingIndex = history.lastIndex(where: {
-            self.planUtilizationHourBucket(for: $0.capturedAt) == sampleHourBucket
-        }) {
+        if let matchingIndex = self.planUtilizationHistoryMergeIndex(
+            history: history,
+            insertionIndex: insertionIndex,
+            sample: sample)
+        {
             let merged = self.mergedPlanUtilizationHistorySample(
                 existing: history[matchingIndex],
                 incoming: sample)
@@ -97,7 +99,7 @@ extension UsageStore {
             return history
         }
 
-        if let insertionIndex = history.firstIndex(where: { $0.capturedAt > sample.capturedAt }) {
+        if insertionIndex < history.endIndex {
             history.insert(sample, at: insertionIndex)
         } else {
             history.append(sample)
@@ -134,6 +136,86 @@ extension UsageStore {
 
     private nonisolated static func planUtilizationHourBucket(for date: Date) -> Int64 {
         Int64(floor(date.timeIntervalSince1970 / self.planUtilizationMinSampleIntervalSeconds))
+    }
+
+    private nonisolated static func planUtilizationHistoryMergeIndex(
+        history: [PlanUtilizationHistorySample],
+        insertionIndex: Int,
+        sample: PlanUtilizationHistorySample) -> Int?
+    {
+        let sampleHourBucket = self.planUtilizationHourBucket(for: sample.capturedAt)
+        var candidateIndexes: [Int] = []
+
+        let previousIndex = insertionIndex - 1
+        if previousIndex >= history.startIndex {
+            candidateIndexes.append(previousIndex)
+        }
+
+        if insertionIndex < history.endIndex {
+            candidateIndexes.append(insertionIndex)
+        }
+
+        let compatibleIndexes = candidateIndexes.filter { index in
+            let existing = history[index]
+            return self.planUtilizationHourBucket(for: existing.capturedAt) == sampleHourBucket
+                && self.canMergePlanUtilizationHistorySamples(existing: existing, incoming: sample)
+        }
+
+        guard !compatibleIndexes.isEmpty else { return nil }
+        if compatibleIndexes.count == 1 {
+            return compatibleIndexes[0]
+        }
+
+        return compatibleIndexes.min { lhs, rhs in
+            let lhsDistance = abs(history[lhs].capturedAt.timeIntervalSince(sample.capturedAt))
+            let rhsDistance = abs(history[rhs].capturedAt.timeIntervalSince(sample.capturedAt))
+            if lhsDistance == rhsDistance {
+                return history[lhs].capturedAt > history[rhs].capturedAt
+            }
+            return lhsDistance < rhsDistance
+        }
+    }
+
+    private nonisolated static func canMergePlanUtilizationHistorySamples(
+        existing: PlanUtilizationHistorySample,
+        incoming: PlanUtilizationHistorySample) -> Bool
+    {
+        self.arePlanUtilizationWindowMarkersCompatible(
+            existingWindowMinutes: existing.primaryWindowMinutes,
+            existingResetsAt: existing.primaryResetsAt,
+            incomingWindowMinutes: incoming.primaryWindowMinutes,
+            incomingResetsAt: incoming.primaryResetsAt)
+            && self.arePlanUtilizationWindowMarkersCompatible(
+                existingWindowMinutes: existing.secondaryWindowMinutes,
+                existingResetsAt: existing.secondaryResetsAt,
+                incomingWindowMinutes: incoming.secondaryWindowMinutes,
+                incomingResetsAt: incoming.secondaryResetsAt)
+    }
+
+    private nonisolated static func arePlanUtilizationWindowMarkersCompatible(
+        existingWindowMinutes: Int?,
+        existingResetsAt: Date?,
+        incomingWindowMinutes: Int?,
+        incomingResetsAt: Date?) -> Bool
+    {
+        if let existingWindowMinutes, let incomingWindowMinutes, existingWindowMinutes != incomingWindowMinutes {
+            return false
+        }
+
+        let normalizedExistingReset = existingResetsAt.map(self.normalizedPlanUtilizationBoundaryDate)
+        let normalizedIncomingReset = incomingResetsAt.map(self.normalizedPlanUtilizationBoundaryDate)
+        if let normalizedExistingReset,
+           let normalizedIncomingReset,
+           normalizedExistingReset != normalizedIncomingReset
+        {
+            return false
+        }
+
+        return true
+    }
+
+    private nonisolated static func normalizedPlanUtilizationBoundaryDate(_ date: Date) -> Date {
+        Date(timeIntervalSince1970: floor(date.timeIntervalSince1970))
     }
 
     private nonisolated static func mergedPlanUtilizationHistorySample(
