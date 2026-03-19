@@ -99,10 +99,10 @@ extension StatusItemController {
                 self.lastMenuProvider = menuProvider
                 provider = menuProvider
             } else if menu === self.fallbackMenu {
-                self.lastMenuProvider = self.store.enabledProviders().first ?? .codex
+                self.lastMenuProvider = self.store.enabledProvidersForDisplay().first ?? .codex
                 provider = nil
             } else {
-                let resolved = self.store.enabledProviders().first ?? .codex
+                let resolved = self.store.enabledProvidersForDisplay().first ?? .codex
                 self.lastMenuProvider = resolved
                 provider = resolved
             }
@@ -147,7 +147,7 @@ extension StatusItemController {
     }
 
     private func populateMenu(_ menu: NSMenu, provider: UsageProvider?) {
-        let enabledProviders = self.store.enabledProviders()
+        let enabledProviders = self.store.enabledProvidersForDisplay()
         let includesOverview = self.includesOverviewTab(enabledProviders: enabledProviders)
         let switcherSelection = self.shouldMergeIcons && enabledProviders.count > 1
             ? self.resolvedSwitcherSelection(
@@ -243,7 +243,7 @@ extension StatusItemController {
                 context: openAIContext,
                 addedOpenAIWebItems: addedOpenAIWebItems)
         }
-        self.addActionableSections(descriptor.sections, to: menu)
+        self.addActionableSections(descriptor.sections, to: menu, width: menuWidth)
     }
 
     /// Smart update: only rebuild content sections when switching providers (keep the switcher intact).
@@ -291,7 +291,7 @@ extension StatusItemController {
             currentProvider: currentProvider,
             context: openAIContext,
             addedOpenAIWebItems: addedOpenAIWebItems)
-        self.addActionableSections(descriptor.sections, to: menu)
+        self.addActionableSections(descriptor.sections, to: menu, width: menuWidth)
     }
 
     private struct OpenAIWebContext {
@@ -486,7 +486,7 @@ extension StatusItemController {
         menu.addItem(.separator())
     }
 
-    private func addActionableSections(_ sections: [MenuDescriptor.Section], to menu: NSMenu) {
+    private func addActionableSections(_ sections: [MenuDescriptor.Section], to menu: NSMenu, width: CGFloat) {
         let actionableSections = sections.filter { section in
             section.entries.contains { entry in
                 if case .action = entry { return true }
@@ -497,6 +497,10 @@ extension StatusItemController {
             for entry in section.entries {
                 switch entry {
                 case let .text(text, style):
+                    if style == .secondary {
+                        menu.addItem(self.makeWrappedSecondaryTextItem(text: text, width: width))
+                        continue
+                    }
                     let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
                     item.isEnabled = false
                     if style == .headline {
@@ -536,6 +540,46 @@ extension StatusItemController {
                 menu.addItem(.separator())
             }
         }
+    }
+
+    private func makeWrappedSecondaryTextItem(text: String, width: CGFloat) -> NSMenuItem {
+        let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
+        let view = self.makeWrappedSecondaryTextView(text: text)
+        let height = self.menuTextItemHeight(for: view, width: width)
+        view.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
+        item.view = view
+        item.isEnabled = false
+        item.toolTip = text
+        return item
+    }
+
+    private func makeWrappedSecondaryTextView(text: String) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let textField = NSTextField(wrappingLabelWithString: text)
+        textField.font = NSFont.menuFont(ofSize: NSFont.smallSystemFontSize)
+        textField.textColor = NSColor.secondaryLabelColor
+        textField.lineBreakMode = .byWordWrapping
+        textField.maximumNumberOfLines = 0
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textField.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(textField)
+        NSLayoutConstraint.activate([
+            textField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
+            textField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+            textField.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
+            textField.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -2),
+        ])
+
+        return container
+    }
+
+    private func menuTextItemHeight(for view: NSView, width: CGFloat) -> CGFloat {
+        view.frame = NSRect(origin: .zero, size: NSSize(width: width, height: 1))
+        view.layoutSubtreeIfNeeded()
+        return max(1, ceil(view.fittingSize.height))
     }
 
     func makeMenu(for provider: UsageProvider?) -> NSMenu {
@@ -598,7 +642,7 @@ extension StatusItemController {
         let view = TokenAccountSwitcherView(
             accounts: display.accounts,
             selectedIndex: display.activeIndex,
-            width: self.menuCardWidth(for: self.store.enabledProviders(), menu: menu),
+            width: self.menuCardWidth(for: self.store.enabledProvidersForDisplay(), menu: menu),
             onSelect: { [weak self, weak menu] index in
                 guard let self, let menu else { return }
                 self.settings.setActiveTokenAccountIndex(index, for: display.provider)
@@ -618,12 +662,14 @@ extension StatusItemController {
     }
 
     private func resolvedMenuProvider(enabledProviders: [UsageProvider]? = nil) -> UsageProvider? {
-        let enabled = enabledProviders ?? self.store.enabledProviders()
+        let enabled = enabledProviders ?? self.store.enabledProvidersForDisplay()
         if enabled.isEmpty { return .codex }
         if let selected = self.selectedMenuProvider, enabled.contains(selected) {
             return selected
         }
-        return enabled.first
+        // Prefer an available provider so the default menu content matches the status icon.
+        // Falls back to first display provider when all lack credentials.
+        return enabled.first(where: { self.store.isProviderAvailable($0) }) ?? enabled.first
     }
 
     private func includesOverviewTab(enabledProviders: [UsageProvider]) -> Bool {
@@ -704,7 +750,7 @@ extension StatusItemController {
         if menu === self.fallbackMenu {
             return nil
         }
-        return self.store.enabledProviders().first ?? .codex
+        return self.store.enabledProvidersForDisplay().first ?? .codex
     }
 
     private func scheduleOpenMenuRefresh(for menu: NSMenu) {
@@ -735,7 +781,7 @@ extension StatusItemController {
     }
 
     private func delayedRefreshRetryProviders(for menu: NSMenu) -> [UsageProvider] {
-        let enabledProviders = self.store.enabledProviders()
+        let enabledProviders = self.store.enabledProvidersForDisplay()
         guard !enabledProviders.isEmpty else { return [] }
         let includesOverview = self.includesOverviewTab(enabledProviders: enabledProviders)
 
@@ -766,7 +812,7 @@ extension StatusItemController {
         }
         for item in cardItems {
             guard let view = item.view else { continue }
-            let width = self.menuCardWidth(for: self.store.enabledProviders(), menu: menu)
+            let width = self.menuCardWidth(for: self.store.enabledProvidersForDisplay(), menu: menu)
             let height = self.menuCardHeight(for: view, width: width)
             view.frame = NSRect(
                 origin: .zero,
@@ -1320,7 +1366,7 @@ extension StatusItemController {
     }
 
     private func isHostedSubviewMenu(_ menu: NSMenu) -> Bool {
-        let ids: Set<String> = [
+        let ids: Set = [
             "usageBreakdownChart",
             "creditsHistoryChart",
             "costHistoryChart",
@@ -1332,7 +1378,7 @@ extension StatusItemController {
     }
 
     private func isOpenAIWebSubviewMenu(_ menu: NSMenu) -> Bool {
-        let ids: Set<String> = [
+        let ids: Set = [
             "usageBreakdownChart",
             "creditsHistoryChart",
         ]
@@ -1343,7 +1389,7 @@ extension StatusItemController {
     }
 
     private func refreshHostedSubviewHeights(in menu: NSMenu) {
-        let enabledProviders = self.store.enabledProviders()
+        let enabledProviders = self.store.enabledProvidersForDisplay()
         let width = self.menuCardWidth(for: enabledProviders, menu: menu)
 
         for item in menu.items {
@@ -1360,7 +1406,7 @@ extension StatusItemController {
         snapshotOverride: UsageSnapshot? = nil,
         errorOverride: String? = nil) -> UsageMenuCardView.Model?
     {
-        let target = provider ?? self.store.enabledProviders().first ?? .codex
+        let target = provider ?? self.store.enabledProvidersForDisplay().first ?? .codex
         let metadata = self.store.metadata(for: target)
 
         let snapshot = snapshotOverride ?? self.store.snapshot(for: target)
@@ -1395,7 +1441,10 @@ extension StatusItemController {
 
         let sourceLabel = snapshotOverride == nil ? self.store.sourceLabel(for: target) : nil
         let kiloAutoMode = target == .kilo && self.settings.kiloUsageDataSource == .auto
-
+        let now = Date()
+        let weeklyPace = snapshot?.secondary.flatMap { window in
+            self.store.weeklyPace(provider: target, window: window, now: now)
+        }
         let input = UsageMenuCardView.Model.Input(
             provider: target,
             metadata: metadata,
@@ -1416,7 +1465,8 @@ extension StatusItemController {
             sourceLabel: sourceLabel,
             kiloAutoMode: kiloAutoMode,
             hidePersonalInfo: self.settings.hidePersonalInfo,
-            now: Date())
+            weeklyPace: weeklyPace,
+            now: now)
         return UsageMenuCardView.Model.make(input)
     }
 

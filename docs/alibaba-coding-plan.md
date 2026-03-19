@@ -1,5 +1,5 @@
 ---
-summary: "Alibaba Coding Plan provider data sources: API key auth, Model Studio quota endpoint, and intl/cn region fallback."
+summary: "Alibaba Coding Plan provider data sources: browser-session baseline, secondary API mode, and honest quota fallback behavior."
 read_when:
   - Debugging Alibaba Coding Plan API key handling or quota parsing
   - Updating Alibaba Coding Plan endpoints or region behavior
@@ -8,14 +8,14 @@ read_when:
 
 # Alibaba Coding Plan provider
 
-Alibaba Coding Plan supports both browser-session and API-key paths.
+Alibaba Coding Plan supports both browser-session and API-key paths, but the supported baseline is browser-session fetching from the Model Studio/Bailian console. API mode remains secondary and may still be limited by account/region behavior.
 
 ## Cookie sources (web mode)
 1) Automatic browser import (Model Studio/Bailian cookies).
 2) Manual cookie header from Settings.
 3) Environment variable `ALIBABA_CODING_PLAN_COOKIE`.
 
-When the RPC endpoint returns `ConsoleNeedLogin`, CodexBar treats it as invalid credentials and falls back to web mode in `auto` source mode.
+When the RPC endpoint returns `ConsoleNeedLogin`, CodexBar treats that as a console-session requirement. In API mode it is surfaced as an explicit API-path limitation; in `auto` mode fallback remains observable through the fetch-attempt chain.
 
 ## Token sources (fallback order)
 1) Config token (`~/.codexbar/config.json` -> `providers[].apiKey` for provider `alibaba`).
@@ -56,6 +56,8 @@ When the RPC endpoint returns `ConsoleNeedLogin`, CodexBar treats it as invalid 
   - `perWeekUsedQuota` + `perWeekTotalQuota` + `perWeekQuotaNextRefreshTime` -> secondary (weekly)
   - `perBillMonthUsedQuota` + `perBillMonthTotalQuota` + `perBillMonthQuotaNextRefreshTime` -> tertiary (monthly)
 - Each window maps to `usedPercent = used / total * 100` (bounded to valid range).
+- If the payload proves the plan is active but does not expose defensible quota counters, CodexBar preserves the visible plan state without manufacturing a normal quantitative quota window.
+- If neither real counters nor a defensible active-plan fallback signal exist, parsing fails explicitly instead of degrading to fake `0%` usage.
 
 ## Dashboard links
 - International console: `https://modelstudio.console.alibabacloud.com/ap-southeast-1/?tab=globalset#/efm/coding_plan`

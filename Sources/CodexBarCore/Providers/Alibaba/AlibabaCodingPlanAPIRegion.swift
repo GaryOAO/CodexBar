@@ -46,7 +46,9 @@ public enum AlibabaCodingPlanAPIRegion: String, CaseIterable, Sendable {
         var components = URLComponents(string: self.gatewayBaseURLString)!
         components.path = "/" + Self.endpointPath
         components.queryItems = [
-            URLQueryItem(name: "action", value: "zeldaEasy.broadscope-bailian.codingPlan.queryCodingPlanInstanceInfoV2"),
+            URLQueryItem(
+                name: "action",
+                value: "zeldaEasy.broadscope-bailian.codingPlan.queryCodingPlanInstanceInfoV2"),
             URLQueryItem(name: "product", value: "broadscope-bailian"),
             URLQueryItem(name: "api", value: "queryCodingPlanInstanceInfoV2"),
             URLQueryItem(name: "currentRegionId", value: self.currentRegionID),

@@ -123,5 +123,4 @@ extension AlibabaCodingPlanUsageSnapshot {
 
         return updatedAt.addingTimeInterval(TimeInterval(5 * 60 * 60))
     }
-
 }

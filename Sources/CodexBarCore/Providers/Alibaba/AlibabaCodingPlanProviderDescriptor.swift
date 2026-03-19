@@ -223,7 +223,10 @@ struct AlibabaCodingPlanWebFetchStrategy: ProviderFetchStrategy {
 
         do {
             let session = try AlibabaCodingPlanCookieImporter.importSession(browserDetection: context.browserDetection)
-            CookieHeaderCache.store(provider: .alibaba, cookieHeader: session.cookieHeader, sourceLabel: session.sourceLabel)
+            CookieHeaderCache.store(
+                provider: .alibaba,
+                cookieHeader: session.cookieHeader,
+                sourceLabel: session.sourceLabel)
             return session.cookieHeader
         } catch {
             if let fallbackManual = normalizedConfiguredManual {

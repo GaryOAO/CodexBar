@@ -3,6 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 
+// swiftlint:disable type_body_length
 public struct AlibabaCodingPlanUsageFetcher: Sendable {
     private static let log = CodexBarLog.logger("alibaba-coding-plan")
     private static let browserLikeUserAgent =
@@ -278,18 +279,19 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
         let cleaned = AlibabaCodingPlanSettingsReader.cleaned(rawHost)
         guard let cleaned else { return nil }
 
-        let base: URL?
-        if let url = URL(string: cleaned), url.scheme != nil {
-            base = url
+        let base: URL? = if let url = URL(string: cleaned), url.scheme != nil {
+            url
         } else {
-            base = URL(string: "https://\(cleaned)")
+            URL(string: "https://\(cleaned)")
         }
         guard let base else { return nil }
 
         var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
         components?.path = "/data/api.json"
         components?.queryItems = [
-            URLQueryItem(name: "action", value: "zeldaEasy.broadscope-bailian.codingPlan.queryCodingPlanInstanceInfoV2"),
+            URLQueryItem(
+                name: "action",
+                value: "zeldaEasy.broadscope-bailian.codingPlan.queryCodingPlanInstanceInfoV2"),
             URLQueryItem(name: "product", value: "broadscope-bailian"),
             URLQueryItem(name: "api", value: "queryCodingPlanInstanceInfoV2"),
             URLQueryItem(name: "currentRegionId", value: region.currentRegionID),
@@ -301,11 +303,10 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
         let cleaned = AlibabaCodingPlanSettingsReader.cleaned(rawHost)
         guard let cleaned else { return nil }
 
-        let base: URL?
-        if let url = URL(string: cleaned), url.scheme != nil {
-            base = url
+        let base: URL? = if let url = URL(string: cleaned), url.scheme != nil {
+            url
         } else {
-            base = URL(string: "https://\(cleaned)")
+            URL(string: "https://\(cleaned)")
         }
         guard let base else { return nil }
 
@@ -333,7 +334,9 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
         request.httpMethod = "GET"
         request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         request.setValue(Self.safariLikeUserAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            forHTTPHeaderField: "Accept")
 
         if let (data, response) = try? await URLSession.shared.data(for: request),
            let httpResponse = response as? HTTPURLResponse,
@@ -360,11 +363,10 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
         let cleaned = AlibabaCodingPlanSettingsReader.cleaned(rawHost)
         guard let cleaned else { return nil }
 
-        let base: URL?
-        if let url = URL(string: cleaned), url.scheme != nil {
-            base = url
+        let base: URL? = if let url = URL(string: cleaned), url.scheme != nil {
+            url
         } else {
-            base = URL(string: "https://\(cleaned)")
+            URL(string: "https://\(cleaned)")
         }
         guard let base else { return nil }
 
@@ -423,7 +425,9 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
            statusCode != 0,
            statusCode != 200
         {
-            let message = self.findFirstString(forKeys: ["statusMessage", "status_msg", "message", "msg"], in: dictionary)
+            let message = self.findFirstString(
+                forKeys: ["statusMessage", "status_msg", "message", "msg"],
+                in: dictionary)
                 ?? "status code \(statusCode)"
             let lower = message.lowercased()
             if statusCode == 401 || statusCode == 403 || lower.contains("api key") || lower.contains("unauthorized") {
@@ -460,7 +464,11 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
             if let fallback = self.parseWindowFromPlanUsage(payload: dictionary, instanceInfo: instanceInfo, now: now) {
                 return fallback
             }
-            if let fallback = self.parseActivePlanWithoutQuota(payload: dictionary, instanceInfo: instanceInfo, now: now) {
+            if let fallback = self.parseActivePlanWithoutQuota(
+                payload: dictionary,
+                instanceInfo: instanceInfo,
+                now: now)
+            {
                 return fallback
             }
             let diagnostics = self.payloadDiagnostics(payload: dictionary)
@@ -474,13 +482,17 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
             planName: planName,
             fiveHourUsedQuota: self.anyInt(for: ["per5HourUsedQuota", "perFiveHourUsedQuota"], in: quota),
             fiveHourTotalQuota: self.anyInt(for: ["per5HourTotalQuota", "perFiveHourTotalQuota"], in: quota),
-            fiveHourNextRefreshTime: self.anyDate(for: ["per5HourQuotaNextRefreshTime", "perFiveHourQuotaNextRefreshTime"], in: quota),
+            fiveHourNextRefreshTime: self.anyDate(
+                for: ["per5HourQuotaNextRefreshTime", "perFiveHourQuotaNextRefreshTime"],
+                in: quota),
             weeklyUsedQuota: self.anyInt(for: ["perWeekUsedQuota"], in: quota),
             weeklyTotalQuota: self.anyInt(for: ["perWeekTotalQuota"], in: quota),
             weeklyNextRefreshTime: self.anyDate(for: ["perWeekQuotaNextRefreshTime"], in: quota),
             monthlyUsedQuota: self.anyInt(for: ["perBillMonthUsedQuota", "perMonthUsedQuota"], in: quota),
             monthlyTotalQuota: self.anyInt(for: ["perBillMonthTotalQuota", "perMonthTotalQuota"], in: quota),
-            monthlyNextRefreshTime: self.anyDate(for: ["perBillMonthQuotaNextRefreshTime", "perMonthQuotaNextRefreshTime"], in: quota),
+            monthlyNextRefreshTime: self.anyDate(
+                for: ["perBillMonthQuotaNextRefreshTime", "perMonthQuotaNextRefreshTime"],
+                in: quota),
             updatedAt: now)
 
         if snapshot.fiveHourTotalQuota == nil,
@@ -490,7 +502,11 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
             if let fallback = self.parseWindowFromPlanUsage(payload: dictionary, instanceInfo: instanceInfo, now: now) {
                 return fallback
             }
-            if let fallback = self.parseActivePlanWithoutQuota(payload: dictionary, instanceInfo: instanceInfo, now: now) {
+            if let fallback = self.parseActivePlanWithoutQuota(
+                payload: dictionary,
+                instanceInfo: instanceInfo,
+                now: now)
+            {
                 return fallback
             }
             let diagnostics = self.payloadDiagnostics(payload: dictionary)
@@ -502,7 +518,10 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
     }
 
     private static func findPlanName(in payload: [String: Any]) -> String? {
-        if let infos = self.findFirstArray(forKeys: ["codingPlanInstanceInfos", "coding_plan_instance_infos"], in: payload) {
+        if let infos = self.findFirstArray(
+            forKeys: ["codingPlanInstanceInfos", "coding_plan_instance_infos"],
+            in: payload)
+        {
             for item in infos {
                 guard let info = item as? [String: Any] else { continue }
                 let candidates = [
@@ -521,7 +540,9 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
     }
 
     private static func findActiveInstanceInfo(in payload: [String: Any]) -> [String: Any]? {
-        guard let infos = self.findFirstArray(forKeys: ["codingPlanInstanceInfos", "coding_plan_instance_infos"], in: payload)
+        guard let infos = self.findFirstArray(
+            forKeys: ["codingPlanInstanceInfos", "coding_plan_instance_infos"],
+            in: payload)
         else {
             return nil
         }
@@ -551,8 +572,12 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
 
         let roundedPercent = max(0, min(Int(usagePercent.rounded()), 100))
         let reset =
-            self.anyDate(for: ["per5HourQuotaNextRefreshTime", "nextRefreshTime", "endTime", "periodEndTime"], in: source) ??
-            self.findFirstDate(forKeys: ["per5HourQuotaNextRefreshTime", "nextRefreshTime", "endTime", "periodEndTime"], in: payload)
+            self.anyDate(
+                for: ["per5HourQuotaNextRefreshTime", "nextRefreshTime", "endTime", "periodEndTime"],
+                in: source) ??
+            self.findFirstDate(
+                forKeys: ["per5HourQuotaNextRefreshTime", "nextRefreshTime", "endTime", "periodEndTime"],
+                in: payload)
 
         return AlibabaCodingPlanUsageSnapshot(
             planName: self.findPlanName(in: payload),
@@ -579,15 +604,11 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
             return nil
         }
 
-        let reset =
-            self.anyDate(for: ["per5HourQuotaNextRefreshTime", "nextRefreshTime", "endTime", "periodEndTime"], in: source) ??
-            self.findFirstDate(forKeys: ["per5HourQuotaNextRefreshTime", "nextRefreshTime", "endTime", "periodEndTime"], in: payload)
-
         return AlibabaCodingPlanUsageSnapshot(
             planName: self.findPlanName(in: payload),
-            fiveHourUsedQuota: 0,
-            fiveHourTotalQuota: 100,
-            fiveHourNextRefreshTime: reset,
+            fiveHourUsedQuota: nil,
+            fiveHourTotalQuota: nil,
+            fiveHourNextRefreshTime: nil,
             weeklyUsedQuota: nil,
             weeklyTotalQuota: nil,
             weeklyNextRefreshTime: nil,
@@ -616,7 +637,10 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
     }
 
     private static func findQuotaInfo(in payload: [String: Any]) -> [String: Any]? {
-        if let direct = self.findFirstDictionary(forKeys: ["codingPlanQuotaInfo", "coding_plan_quota_info"], in: payload) {
+        if let direct = self.findFirstDictionary(
+            forKeys: ["codingPlanQuotaInfo", "coding_plan_quota_info"],
+            in: payload)
+        {
             return direct
         }
         return self.findFirstDictionary(
@@ -983,7 +1007,8 @@ public enum AlibabaCodingPlanUsageError: LocalizedError, Sendable, Equatable {
     public var errorDescription: String? {
         switch self {
         case .loginRequired:
-            "Alibaba Coding Plan console login is required. Sign in to Model Studio in a supported browser or paste a Cookie header."
+            "Alibaba Coding Plan console login is required. " +
+                "Sign in to Model Studio in a supported browser or paste a Cookie header."
         case .invalidCredentials:
             "Alibaba Coding Plan API credentials are invalid or expired."
         case let .networkError(message):
@@ -995,3 +1020,5 @@ public enum AlibabaCodingPlanUsageError: LocalizedError, Sendable, Equatable {
         }
     }
 }
+
+// swiftlint:enable type_body_length

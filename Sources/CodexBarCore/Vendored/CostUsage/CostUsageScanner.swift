@@ -1,13 +1,13 @@
 import Foundation
 
 enum CostUsageScanner {
-    enum ClaudeLogProviderFilter: Sendable {
+    enum ClaudeLogProviderFilter {
         case all
         case vertexAIOnly
         case excludeVertexAI
     }
 
-    struct Options: Sendable {
+    struct Options {
         var codexSessionsRoot: URL?
         var claudeProjectsRoots: [URL]?
         var cacheRoot: URL?
@@ -31,7 +31,7 @@ enum CostUsageScanner {
         }
     }
 
-    struct CodexParseResult: Sendable {
+    struct CodexParseResult {
         let days: [String: [String: [Int]]]
         let parsedBytes: Int64
         let lastModel: String?
@@ -44,7 +44,7 @@ enum CostUsageScanner {
         var seenFileIds: Set<String> = []
     }
 
-    struct ClaudeParseResult: Sendable {
+    struct ClaudeParseResult {
         let days: [String: [String: [Int]]]
         let parsedBytes: Int64
     }
@@ -79,7 +79,7 @@ enum CostUsageScanner {
 
     // MARK: - Day keys
 
-    struct CostUsageDayRange: Sendable {
+    struct CostUsageDayRange {
         let sinceKey: String
         let untilKey: String
         let scanSinceKey: String
@@ -558,6 +558,7 @@ enum CostUsageScanner {
                 let input = packed[safe: 0] ?? 0
                 let cached = packed[safe: 1] ?? 0
                 let output = packed[safe: 2] ?? 0
+                let totalTokens = input + output
 
                 dayInput += input
                 dayOutput += output
@@ -567,15 +568,18 @@ enum CostUsageScanner {
                     inputTokens: input,
                     cachedInputTokens: cached,
                     outputTokens: output)
-                breakdown.append(CostUsageDailyReport.ModelBreakdown(modelName: model, costUSD: cost))
+                breakdown.append(
+                    CostUsageDailyReport.ModelBreakdown(
+                        modelName: model,
+                        costUSD: cost,
+                        totalTokens: totalTokens))
                 if let cost {
                     dayCost += cost
                     dayCostSeen = true
                 }
             }
 
-            breakdown.sort { lhs, rhs in (rhs.costUSD ?? -1) < (lhs.costUSD ?? -1) }
-            let top = Array(breakdown.prefix(3))
+            let sortedBreakdown = Self.sortedModelBreakdowns(breakdown)
 
             let dayTotal = dayInput + dayOutput
             let entryCost = dayCostSeen ? dayCost : nil
@@ -586,7 +590,7 @@ enum CostUsageScanner {
                 totalTokens: dayTotal,
                 costUSD: entryCost,
                 modelsUsed: modelNames,
-                modelBreakdowns: top))
+                modelBreakdowns: sortedBreakdown))
 
             totalInput += dayInput
             totalOutput += dayOutput
@@ -688,6 +692,26 @@ enum CostUsageScanner {
             out[idx] = max(0, next)
         }
         return out
+    }
+
+    static func sortedModelBreakdowns(_ breakdowns: [CostUsageDailyReport.ModelBreakdown])
+        -> [CostUsageDailyReport.ModelBreakdown]
+    {
+        breakdowns.sorted { lhs, rhs in
+            let lhsCost = lhs.costUSD ?? -1
+            let rhsCost = rhs.costUSD ?? -1
+            if lhsCost != rhsCost {
+                return lhsCost > rhsCost
+            }
+
+            let lhsTokens = lhs.totalTokens ?? -1
+            let rhsTokens = rhs.totalTokens ?? -1
+            if lhsTokens != rhsTokens {
+                return lhsTokens > rhsTokens
+            }
+
+            return lhs.modelName > rhs.modelName
+        }
     }
 
     // MARK: - Date parsing

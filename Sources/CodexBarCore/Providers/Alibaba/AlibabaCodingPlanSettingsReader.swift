@@ -59,9 +59,11 @@ public enum AlibabaCodingPlanSettingsError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .missingToken:
-            return "Alibaba Coding Plan API key not found. Set apiKey in ~/.codexbar/config.json or ALIBABA_CODING_PLAN_API_KEY."
+            return "Alibaba Coding Plan API key not found. " +
+                "Set apiKey in ~/.codexbar/config.json or ALIBABA_CODING_PLAN_API_KEY."
         case let .missingCookie(details):
-            let base = "No Alibaba Coding Plan session cookies found in browsers. If you use Safari, enable Full Disk Access for CodexBar/Terminal or paste a manual Cookie header."
+            let base = "No Alibaba Coding Plan session cookies found in browsers. " +
+                "If you use Safari, enable Full Disk Access for CodexBar/Terminal or paste a manual Cookie header."
             guard let details, !details.isEmpty else { return base }
             return "\(base) \(details)"
         case .invalidCookie:

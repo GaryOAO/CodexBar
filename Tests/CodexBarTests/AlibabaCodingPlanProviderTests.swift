@@ -12,20 +12,23 @@ struct AlibabaCodingPlanSettingsReaderTests {
 
     @Test
     func apiTokenStripsQuotes() {
-        let token = AlibabaCodingPlanSettingsReader.apiToken(environment: ["ALIBABA_CODING_PLAN_API_KEY": "\"token-xyz\""])
+        let token = AlibabaCodingPlanSettingsReader
+            .apiToken(environment: ["ALIBABA_CODING_PLAN_API_KEY": "\"token-xyz\""])
         #expect(token == "token-xyz")
     }
 
     @Test
     func quotaURLInfersScheme() {
         let url = AlibabaCodingPlanSettingsReader
-            .quotaURL(environment: [AlibabaCodingPlanSettingsReader.quotaURLKey: "modelstudio.console.alibabacloud.com/data/api.json"])
+            .quotaURL(environment: [AlibabaCodingPlanSettingsReader
+                    .quotaURLKey: "modelstudio.console.alibabacloud.com/data/api.json"])
         #expect(url?.absoluteString == "https://modelstudio.console.alibabacloud.com/data/api.json")
     }
 
     @Test
     func missingCookieErrorIncludesAccessHintWhenPresent() {
-        let error = AlibabaCodingPlanSettingsError.missingCookie(details: "Safari cookie file exists but is not readable.")
+        let error = AlibabaCodingPlanSettingsError
+            .missingCookie(details: "Safari cookie file exists but is not readable.")
         #expect(error.errorDescription?.contains("Safari cookie file exists but is not readable.") == true)
     }
 }
@@ -56,9 +59,9 @@ struct AlibabaCodingPlanUsageSnapshotTests {
         #expect(usage.primary?.usedPercent == 20)
         #expect(usage.primary?.windowMinutes == 300)
         #expect(usage.secondary?.usedPercent == 30)
-        #expect(usage.secondary?.windowMinutes == 10_080)
+        #expect(usage.secondary?.windowMinutes == 10080)
         #expect(usage.tertiary?.usedPercent == 25)
-        #expect(usage.tertiary?.windowMinutes == 43_200)
+        #expect(usage.tertiary?.windowMinutes == 43200)
         #expect(usage.loginMethod(for: .alibaba) == "Pro")
     }
 
@@ -136,8 +139,12 @@ struct AlibabaCodingPlanUsageParsingTests {
 
         let snapshot = try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8))
         #expect(snapshot.planName == "Alibaba Coding Plan Pro")
-        #expect(snapshot.fiveHourUsedQuota == 0)
-        #expect(snapshot.fiveHourTotalQuota == 100)
+        #expect(snapshot.fiveHourUsedQuota == nil)
+        #expect(snapshot.fiveHourTotalQuota == nil)
+
+        let usage = snapshot.toUsageSnapshot()
+        #expect(usage.primary == nil)
+        #expect(usage.loginMethod(for: .alibaba) == "Alibaba Coding Plan Pro")
     }
 
     @Test
@@ -228,8 +235,12 @@ struct AlibabaCodingPlanUsageParsingTests {
         let snapshot = try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8), now: now)
 
         #expect(snapshot.planName == "Coding Plan Lite")
-        #expect(snapshot.fiveHourUsedQuota == 0)
-        #expect(snapshot.fiveHourTotalQuota == 100)
+        #expect(snapshot.fiveHourUsedQuota == nil)
+        #expect(snapshot.fiveHourTotalQuota == nil)
+
+        let usage = snapshot.toUsageSnapshot()
+        #expect(usage.primary == nil)
+        #expect(usage.loginMethod(for: .alibaba) == "Coding Plan Lite")
     }
 
     @Test

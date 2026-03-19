@@ -74,7 +74,7 @@ public enum AlibabaCodingPlanCookieImporter {
             installedBrowsers.remove(at: safariIndex)
         }
         installedBrowsers.insert(.safari, at: 0)
-        log("Cookie import candidates: \(installedBrowsers.map { $0.displayName }.joined(separator: ", "))")
+        log("Cookie import candidates: \(installedBrowsers.map(\.displayName).joined(separator: ", "))")
 
         for browserSource in installedBrowsers {
             do {
@@ -86,7 +86,10 @@ public enum AlibabaCodingPlanCookieImporter {
                     logger: log)
                 if sources.isEmpty {
                     log("No matching cookie records in \(browserSource.displayName)")
-                    if let fallbackSession = try Self.importChromiumFallbackSession(browser: browserSource, logger: log) {
+                    if let fallbackSession = try Self.importChromiumFallbackSession(
+                        browser: browserSource,
+                        logger: log)
+                    {
                         return fallbackSession
                     }
                 }
@@ -224,7 +227,11 @@ private enum AlibabaChromiumCookieFallbackImporter {
         keys: [Data]) throws -> [HTTPCookie]
     {
         guard let sourceDB = store.databaseURL else { return [] }
-        let records = try self.readCookiesFromLockedDB(sourceDB: sourceDB, domains: domains, keys: keys, label: store.label)
+        let records = try self.readCookiesFromLockedDB(
+            sourceDB: sourceDB,
+            domains: domains,
+            keys: keys,
+            label: store.label)
         return records.compactMap(self.makeCookie)
     }
 
@@ -280,13 +287,12 @@ private enum AlibabaChromiumCookieFallbackImporter {
                 continue
             }
 
-            let value: String?
-            if let plain = self.readText(stmt, index: 5), !plain.isEmpty {
-                value = plain
+            let value: String? = if let plain = self.readText(stmt, index: 5), !plain.isEmpty {
+                plain
             } else if let encrypted = self.readBlob(stmt, index: 6) {
-                value = self.decrypt(encrypted, usingAnyOf: keys)
+                self.decrypt(encrypted, usingAnyOf: keys)
             } else {
-                value = nil
+                nil
             }
             guard let value, !value.isEmpty else { continue }
 

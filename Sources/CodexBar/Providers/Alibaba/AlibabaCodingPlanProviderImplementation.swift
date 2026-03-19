@@ -32,7 +32,8 @@ struct AlibabaCodingPlanProviderImplementation: ProviderImplementation {
         let binding = Binding(
             get: { context.settings.alibabaCodingPlanAPIRegion.rawValue },
             set: { raw in
-                context.settings.alibabaCodingPlanAPIRegion = AlibabaCodingPlanAPIRegion(rawValue: raw) ?? .international
+                context.settings
+                    .alibabaCodingPlanAPIRegion = AlibabaCodingPlanAPIRegion(rawValue: raw) ?? .international
             })
         let options = AlibabaCodingPlanAPIRegion.allCases.map {
             ProviderSettingsPickerOption(id: $0.rawValue, title: $0.displayName)
