@@ -125,7 +125,42 @@ struct AlibabaCodingPlanUsageParsingTests {
     }
 
     @Test
-    func missingQuotaDataFallsBackToActivePlanSnapshot() throws {
+    func multiInstanceQuotaPayloadUsesSelectedActiveInstancePlanName() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let json = """
+        {
+          "data": {
+            "codingPlanInstanceInfos": [
+              {
+                "planName": "Expired Starter",
+                "status": "EXPIRED",
+                "endTime": "2025-04-01 17:00"
+              },
+              {
+                "planName": "Active Pro",
+                "status": "VALID",
+                "codingPlanQuotaInfo": {
+                  "per5HourUsedQuota": 52,
+                  "per5HourTotalQuota": 1000,
+                  "per5HourQuotaNextRefreshTime": 1700000300000
+                }
+              }
+            ]
+          },
+          "status_code": 0
+        }
+        """
+
+        let snapshot = try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8), now: now)
+
+        #expect(snapshot.planName == "Active Pro")
+        #expect(snapshot.fiveHourUsedQuota == 52)
+        #expect(snapshot.fiveHourTotalQuota == 1000)
+        #expect(snapshot.fiveHourNextRefreshTime == Date(timeIntervalSince1970: 1_700_000_300))
+    }
+
+    @Test
+    func missingQuotaDataWithoutPositiveActiveSignalFails() {
         let json = """
         {
           "data": {
@@ -137,14 +172,30 @@ struct AlibabaCodingPlanUsageParsingTests {
         }
         """
 
-        let snapshot = try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8))
-        #expect(snapshot.planName == "Alibaba Coding Plan Pro")
-        #expect(snapshot.fiveHourUsedQuota == nil)
-        #expect(snapshot.fiveHourTotalQuota == nil)
+        #expect(throws: AlibabaCodingPlanUsageError.self) {
+            try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8))
+        }
+    }
 
-        let usage = snapshot.toUsageSnapshot()
-        #expect(usage.primary == nil)
-        #expect(usage.loginMethod(for: .alibaba) == "Alibaba Coding Plan Pro")
+    @Test
+    func planUsageWithoutPositiveActiveProofFails() {
+        let json = """
+        {
+          "data": {
+            "codingPlanInstanceInfos": [
+              {
+                "planName": "Alibaba Coding Plan Pro",
+                "planUsage": "18%"
+              }
+            ]
+          },
+          "status_code": 0
+        }
+        """
+
+        #expect(throws: AlibabaCodingPlanUsageError.self) {
+            try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8))
+        }
     }
 
     @Test
@@ -188,7 +239,7 @@ struct AlibabaCodingPlanUsageParsingTests {
     }
 
     @Test
-    func fallsBackToPlanUsageWhenQuotaBlockMissing() throws {
+    func planUsageFallbackStaysVisibleButNonQuantitative() throws {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let json = """
         {
@@ -209,9 +260,13 @@ struct AlibabaCodingPlanUsageParsingTests {
         let snapshot = try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8), now: now)
 
         #expect(snapshot.planName == "Coding Plan Lite")
-        #expect(snapshot.fiveHourUsedQuota == 0)
-        #expect(snapshot.fiveHourTotalQuota == 100)
-        #expect(snapshot.fiveHourNextRefreshTime != nil)
+        #expect(snapshot.fiveHourUsedQuota == nil)
+        #expect(snapshot.fiveHourTotalQuota == nil)
+        #expect(snapshot.fiveHourNextRefreshTime == nil)
+
+        let usage = snapshot.toUsageSnapshot()
+        #expect(usage.primary == nil)
+        #expect(usage.loginMethod(for: .alibaba) == "Coding Plan Lite")
     }
 
     @Test
@@ -241,6 +296,95 @@ struct AlibabaCodingPlanUsageParsingTests {
         let usage = snapshot.toUsageSnapshot()
         #expect(usage.primary == nil)
         #expect(usage.loginMethod(for: .alibaba) == "Coding Plan Lite")
+    }
+
+    @Test
+    func futureEndTimeCountsAsPositiveActiveSignal() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let json = """
+        {
+          "data": {
+            "codingPlanInstanceInfos": [
+              {
+                "planName": "Coding Plan Lite",
+                "endTime": "2030-04-01 17:00"
+              }
+            ]
+          },
+          "status_code": 0
+        }
+        """
+
+        let snapshot = try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8), now: now)
+
+        #expect(snapshot.planName == "Coding Plan Lite")
+        #expect(snapshot.fiveHourUsedQuota == nil)
+        #expect(snapshot.weeklyTotalQuota == nil)
+
+        let usage = snapshot.toUsageSnapshot()
+        #expect(usage.primary == nil)
+        #expect(usage.loginMethod(for: .alibaba) == "Coding Plan Lite")
+    }
+
+    @Test
+    func multiInstanceFallbackUsesSelectedActiveInstancePlanName() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let json = """
+        {
+          "data": {
+            "codingPlanInstanceInfos": [
+              {
+                "planName": "Expired Starter",
+                "status": "EXPIRED",
+                "endTime": "2025-04-01 17:00"
+              },
+              {
+                "planName": "Active Pro",
+                "status": "VALID",
+                "planUsage": "42%"
+              }
+            ]
+          },
+          "status_code": 0
+        }
+        """
+
+        let snapshot = try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8), now: now)
+
+        #expect(snapshot.planName == "Active Pro")
+        #expect(snapshot.fiveHourUsedQuota == nil)
+        #expect(snapshot.fiveHourTotalQuota == nil)
+
+        let usage = snapshot.toUsageSnapshot()
+        #expect(usage.primary == nil)
+        #expect(usage.loginMethod(for: .alibaba) == "Active Pro")
+    }
+
+    @Test
+    func payloadLevelActiveProofDoesNotLabelFirstInstanceWhenNoInstanceIsActive() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let json = """
+        {
+          "data": {
+            "status": "VALID",
+            "codingPlanInstanceInfos": [
+              {
+                "planName": "Expired Starter",
+                "status": "EXPIRED",
+                "endTime": "2025-04-01 17:00"
+              },
+              {
+                "planName": "No Proof Pro"
+              }
+            ]
+          },
+          "status_code": 0
+        }
+        """
+
+        #expect(throws: AlibabaCodingPlanUsageError.self) {
+            try AlibabaCodingPlanUsageFetcher.parseUsageSnapshot(from: Data(json.utf8), now: now)
+        }
     }
 
     @Test
@@ -308,7 +452,7 @@ struct AlibabaCodingPlanUsageParsingTests {
     }
 }
 
-@Suite
+@Suite(.serialized)
 struct AlibabaCodingPlanFallbackTests {
     private struct StubClaudeFetcher: ClaudeUsageFetching {
         func loadLatestUsage(model _: String) async throws -> ClaudeUsageSnapshot {
@@ -324,7 +468,11 @@ struct AlibabaCodingPlanFallbackTests {
         }
     }
 
-    private func makeContext(sourceMode: ProviderSourceMode) -> ProviderFetchContext {
+    private func makeContext(
+        sourceMode: ProviderSourceMode,
+        settings: ProviderSettingsSnapshot? = nil,
+        env: [String: String] = [:]) -> ProviderFetchContext
+    {
         let browserDetection = BrowserDetection(cacheTTL: 0)
         return ProviderFetchContext(
             runtime: .cli,
@@ -333,9 +481,9 @@ struct AlibabaCodingPlanFallbackTests {
             webTimeout: 1,
             webDebugDumpHTML: false,
             verbose: false,
-            env: [:],
-            settings: nil,
-            fetcher: UsageFetcher(environment: [:]),
+            env: env,
+            settings: settings,
+            fetcher: UsageFetcher(environment: env),
             claudeFetcher: StubClaudeFetcher(),
             browserDetection: browserDetection)
     }
@@ -352,6 +500,38 @@ struct AlibabaCodingPlanFallbackTests {
         let strategy = AlibabaCodingPlanWebFetchStrategy()
         let context = self.makeContext(sourceMode: .web)
         #expect(strategy.shouldFallback(on: URLError(.secureConnectionFailed), context: context) == false)
+    }
+
+    @Test
+    func autoModeDoesNotBorrowManualCookieAuthorityWhenBrowserImportFails() {
+        let strategy = AlibabaCodingPlanWebFetchStrategy()
+        let settings = ProviderSettingsSnapshot.make(
+            alibaba: ProviderSettingsSnapshot.AlibabaCodingPlanProviderSettings(
+                cookieSource: .auto,
+                manualCookieHeader: "session=manual-cookie",
+                apiRegion: .international))
+        let context = self.makeContext(sourceMode: .auto, settings: settings)
+
+        CookieHeaderCache.clear(provider: .alibaba)
+        AlibabaCodingPlanCookieImporter.importSessionOverrideForTesting = { _, _ in
+            throw AlibabaCodingPlanSettingsError.missingCookie()
+        }
+        defer {
+            AlibabaCodingPlanCookieImporter.importSessionOverrideForTesting = nil
+        }
+
+        do {
+            _ = try AlibabaCodingPlanWebFetchStrategy.resolveCookieHeader(context: context, allowCached: false)
+            Issue.record("Expected auto mode to fail instead of borrowing the manual cookie header")
+        } catch let error as AlibabaCodingPlanSettingsError {
+            guard case .missingCookie = error else {
+                Issue.record("Expected missingCookie, got \(error)")
+                return
+            }
+            #expect(strategy.shouldFallback(on: error, context: context))
+        } catch {
+            Issue.record("Expected AlibabaCodingPlanSettingsError, got \(error)")
+        }
     }
 }
 

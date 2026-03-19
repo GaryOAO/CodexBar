@@ -459,12 +459,9 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
             }
         }
 
-        let instanceInfo = self.findActiveInstanceInfo(in: dictionary)
+        let instanceInfo = self.findActiveInstanceInfo(in: dictionary, now: now)
         guard let quota = self.findQuotaInfo(in: dictionary) ?? self.findQuotaInfo(in: instanceInfo ?? [:]) else {
-            if let fallback = self.parseWindowFromPlanUsage(payload: dictionary, instanceInfo: instanceInfo, now: now) {
-                return fallback
-            }
-            if let fallback = self.parseActivePlanWithoutQuota(
+            if let fallback = self.parsePlanVisibleActiveFallback(
                 payload: dictionary,
                 instanceInfo: instanceInfo,
                 now: now)
@@ -476,7 +473,7 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
             throw AlibabaCodingPlanUsageError.parseFailed("Missing coding plan quota data (\(diagnostics))")
         }
 
-        let planName = self.findPlanName(in: dictionary)
+        let planName = self.findPlanName(in: instanceInfo ?? [:]) ?? self.findPlanName(in: dictionary)
 
         let snapshot = AlibabaCodingPlanUsageSnapshot(
             planName: planName,
@@ -499,10 +496,7 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
            snapshot.weeklyTotalQuota == nil,
            snapshot.monthlyTotalQuota == nil
         {
-            if let fallback = self.parseWindowFromPlanUsage(payload: dictionary, instanceInfo: instanceInfo, now: now) {
-                return fallback
-            }
-            if let fallback = self.parseActivePlanWithoutQuota(
+            if let fallback = self.parsePlanVisibleActiveFallback(
                 payload: dictionary,
                 instanceInfo: instanceInfo,
                 now: now)
@@ -539,7 +533,7 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
         return self.findFirstString(forKeys: ["planName", "plan_name", "packageName", "package_name"], in: payload)
     }
 
-    private static func findActiveInstanceInfo(in payload: [String: Any]) -> [String: Any]? {
+    private static func findActiveInstanceInfo(in payload: [String: Any], now: Date = Date()) -> [String: Any]? {
         guard let infos = self.findFirstArray(
             forKeys: ["codingPlanInstanceInfos", "coding_plan_instance_infos"],
             in: payload)
@@ -548,64 +542,37 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
         }
 
         var first: [String: Any]?
+        var best: [String: Any]?
+        var bestScore = Int.min
         for item in infos {
             guard let info = item as? [String: Any] else { continue }
             first = first ?? info
-            let status = self.anyString(for: ["status", "instanceStatus"], in: info)?.uppercased()
-            if status == "VALID" || status == "ACTIVE" {
-                return info
+            let score = self.activeSignalScore(in: info, now: now)
+            if score > bestScore {
+                best = info
+                bestScore = score
             }
+        }
+        if bestScore > 0 {
+            return best
         }
         return first
     }
 
-    private static func parseWindowFromPlanUsage(
+    private static func parsePlanVisibleActiveFallback(
         payload: [String: Any],
         instanceInfo: [String: Any]?,
         now: Date) -> AlibabaCodingPlanUsageSnapshot?
     {
         let source = instanceInfo ?? payload
-        let usagePercent =
-            self.anyPercent(for: ["planUsage", "usageRate", "usage", "usageValue"], in: source) ??
-            self.findFirstPercent(forKeys: ["planUsage", "usageRate", "usage", "usageValue"], in: payload)
-        guard let usagePercent else { return nil }
-
-        let roundedPercent = max(0, min(Int(usagePercent.rounded()), 100))
-        let reset =
-            self.anyDate(
-                for: ["per5HourQuotaNextRefreshTime", "nextRefreshTime", "endTime", "periodEndTime"],
-                in: source) ??
-            self.findFirstDate(
-                forKeys: ["per5HourQuotaNextRefreshTime", "nextRefreshTime", "endTime", "periodEndTime"],
-                in: payload)
-
-        return AlibabaCodingPlanUsageSnapshot(
-            planName: self.findPlanName(in: payload),
-            fiveHourUsedQuota: roundedPercent,
-            fiveHourTotalQuota: 100,
-            fiveHourNextRefreshTime: reset,
-            weeklyUsedQuota: nil,
-            weeklyTotalQuota: nil,
-            weeklyNextRefreshTime: nil,
-            monthlyUsedQuota: nil,
-            monthlyTotalQuota: nil,
-            monthlyNextRefreshTime: nil,
-            updatedAt: now)
-    }
-
-    private static func parseActivePlanWithoutQuota(
-        payload: [String: Any],
-        instanceInfo: [String: Any]?,
-        now: Date) -> AlibabaCodingPlanUsageSnapshot?
-    {
-        let source = instanceInfo ?? payload
-        let status = self.anyString(for: ["status", "instanceStatus"], in: source)?.uppercased()
-        if let status, status != "VALID", status != "ACTIVE" {
+        guard self.hasPositiveActivePlanSignal(in: source, payload: payload, now: now),
+              let planName = self.findPlanName(in: source) ?? self.findPlanName(in: payload)
+        else {
             return nil
         }
 
         return AlibabaCodingPlanUsageSnapshot(
-            planName: self.findPlanName(in: payload),
+            planName: planName,
             fiveHourUsedQuota: nil,
             fiveHourTotalQuota: nil,
             fiveHourNextRefreshTime: nil,
@@ -616,6 +583,50 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
             monthlyTotalQuota: nil,
             monthlyNextRefreshTime: nil,
             updatedAt: now)
+    }
+
+    private static func hasPositiveActivePlanSignal(
+        in source: [String: Any],
+        payload: [String: Any],
+        now: Date) -> Bool
+    {
+        if self.containsPlanInstances(in: payload) {
+            return self.activeSignalScore(in: source, now: now) > 0
+        }
+        return self.activeSignalScore(in: source, now: now) > 0 || self.activeSignalScore(in: payload, now: now) > 0
+    }
+
+    private static func containsPlanInstances(in payload: [String: Any]) -> Bool {
+        guard let infos = self.findFirstArray(
+            forKeys: ["codingPlanInstanceInfos", "coding_plan_instance_infos"],
+            in: payload)
+        else {
+            return false
+        }
+        return infos.contains { $0 is [String: Any] }
+    }
+
+    private static func activeSignalScore(in source: [String: Any], now: Date) -> Int {
+        if let status = self.anyString(for: ["status", "instanceStatus"], in: source)?.uppercased() {
+            if ["VALID", "ACTIVE"].contains(status) {
+                return 3
+            }
+            if ["EXPIRED", "INVALID", "INACTIVE", "DISABLED", "TERMINATED", "STOPPED"].contains(status) {
+                return -1
+            }
+        }
+
+        if let isActive = self.anyBool(for: ["isActive", "active"], in: source) {
+            return isActive ? 3 : -1
+        }
+
+        if let expiry = self.anyDate(for: ["endTime", "periodEndTime", "expireTime", "expirationTime"], in: source),
+           expiry.timeIntervalSince(now) > 0
+        {
+            return 1
+        }
+
+        return 0
     }
 
     private static func payloadDiagnostics(payload: [String: Any]) -> String {
@@ -853,6 +864,15 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
         return nil
     }
 
+    private static func anyBool(for keys: [String], in dict: [String: Any]) -> Bool? {
+        for key in keys {
+            if let value = self.parseBool(dict[key]) {
+                return value
+            }
+        }
+        return nil
+    }
+
     private static func findFirstPercent(forKeys keys: [String], in value: Any) -> Double? {
         if let dict = value as? [String: Any] {
             for key in keys {
@@ -931,6 +951,24 @@ public struct AlibabaCodingPlanUsageFetcher: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let parsed = Double(cleaned) else { return nil }
         return max(0, min(parsed, 100))
+    }
+
+    private static func parseBool(_ raw: Any?) -> Bool? {
+        if let value = raw as? Bool {
+            return value
+        }
+        if let number = raw as? NSNumber {
+            return number.boolValue
+        }
+        guard let string = self.parseString(raw)?.lowercased() else { return nil }
+        switch string {
+        case "true", "1", "yes", "active", "valid":
+            return true
+        case "false", "0", "no", "inactive", "invalid", "expired":
+            return false
+        default:
+            return nil
+        }
     }
 
     private static func matchFirstGroup(pattern: String, in text: String) -> String? {

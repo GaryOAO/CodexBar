@@ -195,9 +195,7 @@ struct AlibabaCodingPlanWebFetchStrategy: ProviderFetchStrategy {
         }
     }
 
-    private static func resolveCookieHeader(context: ProviderFetchContext, allowCached: Bool) throws -> String {
-        let normalizedConfiguredManual = CookieHeaderNormalizer.normalize(context.settings?.alibaba?.manualCookieHeader)
-
+    static func resolveCookieHeader(context: ProviderFetchContext, allowCached: Bool) throws -> String {
         if let settings = context.settings?.alibaba,
            settings.cookieSource == .manual
         {
@@ -229,9 +227,6 @@ struct AlibabaCodingPlanWebFetchStrategy: ProviderFetchStrategy {
                 sourceLabel: session.sourceLabel)
             return session.cookieHeader
         } catch {
-            if let fallbackManual = normalizedConfiguredManual {
-                return fallbackManual
-            }
             throw error
         }
         #else

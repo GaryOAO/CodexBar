@@ -62,10 +62,16 @@ public enum AlibabaCodingPlanCookieImporter {
         }
     }
 
+    nonisolated(unsafe) static var importSessionOverrideForTesting:
+        ((BrowserDetection, ((String) -> Void)?) throws -> SessionInfo)?
+
     public static func importSession(
         browserDetection: BrowserDetection,
         logger: ((String) -> Void)? = nil) throws -> SessionInfo
     {
+        if let override = self.importSessionOverrideForTesting {
+            return try override(browserDetection, logger)
+        }
         let log: (String) -> Void = { msg in logger?("[alibaba-cookie] \(msg)") }
         var accessDeniedHints: [String] = []
         var failureDetails: [String] = []
