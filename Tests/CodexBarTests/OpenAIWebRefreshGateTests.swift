@@ -3,6 +3,36 @@ import Testing
 @testable import CodexBar
 
 struct OpenAIWebRefreshGateTests {
+    @Test("Battery saver keeps background OpenAI web refreshes off")
+    func batterySaverDisablesBackgroundRefresh() {
+        let shouldRun = UsageStore.shouldRunOpenAIWebRefresh(.init(
+            accessEnabled: true,
+            batterySaverEnabled: true,
+            force: false))
+
+        #expect(shouldRun == false)
+    }
+
+    @Test("Disabling battery saver restores normal OpenAI web refreshes")
+    func disabledBatterySaverAllowsBackgroundRefresh() {
+        let shouldRun = UsageStore.shouldRunOpenAIWebRefresh(.init(
+            accessEnabled: true,
+            batterySaverEnabled: false,
+            force: false))
+
+        #expect(shouldRun == true)
+    }
+
+    @Test("Manual refresh still forces OpenAI web refreshes with battery saver enabled")
+    func manualRefreshBypassesBatterySaver() {
+        let shouldRun = UsageStore.shouldRunOpenAIWebRefresh(.init(
+            accessEnabled: true,
+            batterySaverEnabled: true,
+            force: true))
+
+        #expect(shouldRun == true)
+    }
+
     @Test("Recent successful dashboard refresh stays throttled")
     func recentSuccessSkipsRefresh() {
         let now = Date()

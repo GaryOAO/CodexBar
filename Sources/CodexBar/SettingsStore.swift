@@ -225,6 +225,9 @@ extension SettingsStore {
         let openAIWebAccessDefault = userDefaults.object(forKey: "openAIWebAccessEnabled") as? Bool
         let openAIWebAccessEnabled = openAIWebAccessDefault ?? false
         if openAIWebAccessDefault == nil { userDefaults.set(false, forKey: "openAIWebAccessEnabled") }
+        let openAIWebBatterySaverDefault = userDefaults.object(forKey: "openAIWebBatterySaverEnabled") as? Bool
+        let openAIWebBatterySaverEnabled = openAIWebBatterySaverDefault ?? true
+        if openAIWebBatterySaverDefault == nil { userDefaults.set(true, forKey: "openAIWebBatterySaverEnabled") }
         let jetbrainsIDEBasePath = userDefaults.string(forKey: "jetbrainsIDEBasePath") ?? ""
         let mergeIcons = userDefaults.object(forKey: "mergeIcons") as? Bool ?? true
         let switcherShowsIcons = userDefaults.object(forKey: "switcherShowsIcons") as? Bool ?? true
@@ -262,6 +265,7 @@ extension SettingsStore {
             claudeWebExtrasEnabledRaw: claudeWebExtrasEnabledRaw,
             showOptionalCreditsAndExtraUsage: showOptionalCreditsAndExtraUsage,
             openAIWebAccessEnabled: openAIWebAccessEnabled,
+            openAIWebBatterySaverEnabled: openAIWebBatterySaverEnabled,
             jetbrainsIDEBasePath: jetbrainsIDEBasePath,
             mergeIcons: mergeIcons,
             switcherShowsIcons: switcherShowsIcons,

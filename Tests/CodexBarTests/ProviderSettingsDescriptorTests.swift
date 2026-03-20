@@ -161,10 +161,18 @@ struct ProviderSettingsDescriptorTests {
             requestConfirmation: { _ in })
 
         let toggles = CodexProviderImplementation().settingsToggles(context: context)
-        let toggle = try #require(toggles.first(where: { $0.id == "codex-openai-web-extras" }))
-        #expect(toggle.binding.wrappedValue == false)
-        #expect(toggle.subtitle.contains("Optional."))
-        #expect(toggle.subtitle.contains("Turn this on"))
+        let extrasToggle = try #require(toggles.first(where: { $0.id == "codex-openai-web-extras" }))
+        #expect(extrasToggle.binding.wrappedValue == false)
+        #expect(extrasToggle.subtitle.contains("Optional."))
+        #expect(extrasToggle.subtitle.contains("Turn this on"))
+
+        let batterySaverToggle = try #require(toggles.first(where: { $0.id == "codex-openai-web-battery-saver" }))
+        #expect(batterySaverToggle.binding.wrappedValue == true)
+        #expect(batterySaverToggle.subtitle.contains("Recommended."))
+        #expect(batterySaverToggle.isVisible?() == false)
+
+        settings.openAIWebAccessEnabled = true
+        #expect(batterySaverToggle.isVisible?() == true)
     }
 
     @Test

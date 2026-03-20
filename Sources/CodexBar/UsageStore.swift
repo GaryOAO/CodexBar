@@ -416,12 +416,18 @@ final class UsageStore {
             // Token-cost usage can be slow; run it outside the refresh group so we don't block menu updates.
             self.scheduleTokenRefresh(force: forceTokenUsage)
 
-            // Keep the OpenAI web account state in sync with the current Codex identity, but avoid loading the
-            // full ChatGPT dashboard on the background timer. That scrape is expensive enough to show up in
-            // Activity Monitor, so only run it on explicit/manual refreshes and submenu-driven stale checks.
+            // Keep the OpenAI web account state in sync with the current Codex identity. Background dashboard
+            // scraping stays opt-in behind the Battery Saver setting because the full ChatGPT page is expensive
+            // enough to show up in Activity Monitor.
             self.syncOpenAIWebState()
-            if forceTokenUsage {
-                await self.refreshOpenAIDashboardIfNeeded(force: true)
+            let refreshPolicy = OpenAIWebRefreshPolicyContext(
+                accessEnabled: self.isEnabled(.codex) &&
+                    self.settings.openAIWebAccessEnabled &&
+                    self.settings.codexCookieSource.isEnabled,
+                batterySaverEnabled: self.settings.openAIWebBatterySaverEnabled,
+                force: forceTokenUsage)
+            if Self.shouldRunOpenAIWebRefresh(refreshPolicy) {
+                await self.refreshOpenAIDashboardIfNeeded(force: forceTokenUsage)
             }
 
             if forceTokenUsage, self.openAIDashboardRequiresLogin {

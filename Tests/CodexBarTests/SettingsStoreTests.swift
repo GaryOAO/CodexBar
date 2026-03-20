@@ -627,6 +627,8 @@ struct SettingsStoreTests {
 
         #expect(store.openAIWebAccessEnabled == false)
         #expect(defaults.bool(forKey: "openAIWebAccessEnabled") == false)
+        #expect(store.openAIWebBatterySaverEnabled == true)
+        #expect(defaults.bool(forKey: "openAIWebBatterySaverEnabled") == true)
         #expect(store.codexCookieSource == .off)
     }
 
@@ -650,6 +652,8 @@ struct SettingsStoreTests {
 
         #expect(store.openAIWebAccessEnabled == true)
         #expect(defaults.bool(forKey: "openAIWebAccessEnabled") == true)
+        #expect(store.openAIWebBatterySaverEnabled == true)
+        #expect(defaults.bool(forKey: "openAIWebBatterySaverEnabled") == true)
         #expect(store.codexCookieSource == .auto)
     }
 
@@ -677,6 +681,29 @@ struct SettingsStoreTests {
         store.openAIWebAccessEnabled = true
         #expect(store.codexCookieSource == .auto)
         #expect(defaults.bool(forKey: "openAIWebAccessEnabled") == true)
+    }
+
+    @Test
+    func openAIWebBatterySaverPersistsSeparatelyFromExtrasAvailability() throws {
+        let suite = "SettingsStoreTests-openai-web-battery-saver"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defaults.set(false, forKey: "debugDisableKeychainAccess")
+        let configStore = testConfigStore(suiteName: suite)
+
+        let store = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+
+        #expect(store.openAIWebBatterySaverEnabled == true)
+
+        store.openAIWebBatterySaverEnabled = false
+        #expect(defaults.bool(forKey: "openAIWebBatterySaverEnabled") == false)
+
+        store.openAIWebAccessEnabled = true
+        #expect(store.openAIWebBatterySaverEnabled == false)
     }
 
     @Test

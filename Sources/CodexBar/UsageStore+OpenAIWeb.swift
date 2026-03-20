@@ -10,9 +10,20 @@ struct OpenAIWebRefreshGateContext {
     let refreshInterval: TimeInterval
 }
 
+struct OpenAIWebRefreshPolicyContext {
+    let accessEnabled: Bool
+    let batterySaverEnabled: Bool
+    let force: Bool
+}
+
 // MARK: - OpenAI web error messaging
 
 extension UsageStore {
+    nonisolated static func shouldRunOpenAIWebRefresh(_ context: OpenAIWebRefreshPolicyContext) -> Bool {
+        guard context.accessEnabled else { return false }
+        return context.force || !context.batterySaverEnabled
+    }
+
     nonisolated static func shouldSkipOpenAIWebRefresh(_ context: OpenAIWebRefreshGateContext) -> Bool {
         if context.force || context.accountDidChange { return false }
         if let lastAttemptAt = context.lastAttemptAt,
