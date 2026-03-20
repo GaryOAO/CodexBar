@@ -826,11 +826,13 @@ extension StatusItemController {
         }
     }
 
-    private func makeMenuCardItem(
+    func makeMenuCardItem(
         _ view: some View,
         id: String,
         width: CGFloat,
         submenu: NSMenu? = nil,
+        submenuIndicatorAlignment: Alignment = .topTrailing,
+        submenuIndicatorTopPadding: CGFloat = 8,
         onClick: (() -> Void)? = nil) -> NSMenuItem
     {
         if !Self.menuCardRenderingEnabled {
@@ -848,7 +850,9 @@ extension StatusItemController {
         let highlightState = MenuCardHighlightState()
         let wrapped = MenuCardSectionContainerView(
             highlightState: highlightState,
-            showsSubmenuIndicator: submenu != nil)
+            showsSubmenuIndicator: submenu != nil,
+            submenuIndicatorAlignment: submenuIndicatorAlignment,
+            submenuIndicatorTopPadding: submenuIndicatorTopPadding)
         {
             view
         }
@@ -1076,7 +1080,7 @@ extension StatusItemController {
         var isHighlighted = false
     }
 
-    final class MenuHostingView<Content: View>: NSHostingView<Content> {
+    private final class MenuHostingView<Content: View>: NSHostingView<Content> {
         override var allowsVibrancy: Bool {
             true
         }
@@ -1143,15 +1147,21 @@ extension StatusItemController {
     private struct MenuCardSectionContainerView<Content: View>: View {
         @Bindable var highlightState: MenuCardHighlightState
         let showsSubmenuIndicator: Bool
+        let submenuIndicatorAlignment: Alignment
+        let submenuIndicatorTopPadding: CGFloat
         let content: Content
 
         init(
             highlightState: MenuCardHighlightState,
             showsSubmenuIndicator: Bool,
+            submenuIndicatorAlignment: Alignment,
+            submenuIndicatorTopPadding: CGFloat,
             @ViewBuilder content: () -> Content)
         {
             self.highlightState = highlightState
             self.showsSubmenuIndicator = showsSubmenuIndicator
+            self.submenuIndicatorAlignment = submenuIndicatorAlignment
+            self.submenuIndicatorTopPadding = submenuIndicatorTopPadding
             self.content = content()
         }
 
@@ -1167,12 +1177,12 @@ extension StatusItemController {
                             .padding(.vertical, 2)
                     }
                 }
-                .overlay(alignment: .topTrailing) {
+                .overlay(alignment: self.submenuIndicatorAlignment) {
                     if self.showsSubmenuIndicator {
                         Image(systemName: "chevron.right")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(MenuHighlightStyle.secondary(self.highlightState.isHighlighted))
-                            .padding(.top, 8)
+                            .padding(.top, self.submenuIndicatorTopPadding)
                             .padding(.trailing, 10)
                     }
                 }
@@ -1190,43 +1200,33 @@ extension StatusItemController {
         return item
     }
 
-    func makeFixedWidthSubmenuItem(title: String, submenu: NSMenu, width: CGFloat) -> NSMenuItem {
-        self.makeMenuCardItem(
-            HStack(spacing: 0) {
-                Text(title)
-                    .font(.system(size: NSFont.menuFont(ofSize: 0).pointSize))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 14)
-                    .padding(.trailing, 28)
-                    .padding(.vertical, 8)
-            },
-            id: "submenu-\(title)",
-            width: width,
-            submenu: submenu)
-    }
-
     @discardableResult
     private func addCreditsHistorySubmenu(to menu: NSMenu) -> Bool {
         guard let submenu = self.makeCreditsHistorySubmenu() else { return false }
-        let width = self.menuCardWidth(for: self.store.enabledProvidersForDisplay(), menu: menu)
-        menu.addItem(self.makeFixedWidthSubmenuItem(title: "Credits history", submenu: submenu, width: width))
+        let item = NSMenuItem(title: "Credits history", action: nil, keyEquivalent: "")
+        item.isEnabled = true
+        item.submenu = submenu
+        menu.addItem(item)
         return true
     }
 
     @discardableResult
     private func addUsageBreakdownSubmenu(to menu: NSMenu) -> Bool {
         guard let submenu = self.makeUsageBreakdownSubmenu() else { return false }
-        let width = self.menuCardWidth(for: self.store.enabledProvidersForDisplay(), menu: menu)
-        menu.addItem(self.makeFixedWidthSubmenuItem(title: "Usage breakdown", submenu: submenu, width: width))
+        let item = NSMenuItem(title: "Usage breakdown", action: nil, keyEquivalent: "")
+        item.isEnabled = true
+        item.submenu = submenu
+        menu.addItem(item)
         return true
     }
 
     @discardableResult
     private func addCostHistorySubmenu(to menu: NSMenu, provider: UsageProvider) -> Bool {
         guard let submenu = self.makeCostHistorySubmenu(provider: provider) else { return false }
-        let width = self.menuCardWidth(for: self.store.enabledProvidersForDisplay(), menu: menu)
-        menu.addItem(self.makeFixedWidthSubmenuItem(title: "Usage history (30 days)", submenu: submenu, width: width))
+        let item = NSMenuItem(title: "Usage history (30 days)", action: nil, keyEquivalent: "")
+        item.isEnabled = true
+        item.submenu = submenu
+        menu.addItem(item)
         return true
     }
 
@@ -1281,23 +1281,22 @@ extension StatusItemController {
     }
 
     private func makeUsageBreakdownSubmenu() -> NSMenu? {
-        let width = Self.menuCardBaseWidth
-        let submenu = NSMenu()
-        submenu.delegate = self
-        return self.appendUsageBreakdownChartItem(to: submenu, width: width) ? submenu : nil
-    }
-
-    private func appendUsageBreakdownChartItem(to submenu: NSMenu, width: CGFloat) -> Bool {
         let breakdown = self.store.openAIDashboard?.usageBreakdown ?? []
-        guard !breakdown.isEmpty else { return false }
+        let width = Self.menuCardBaseWidth
+        guard !breakdown.isEmpty else { return nil }
+
         if !Self.menuCardRenderingEnabled {
+            let submenu = NSMenu()
+            submenu.delegate = self
             let chartItem = NSMenuItem()
             chartItem.isEnabled = false
             chartItem.representedObject = "usageBreakdownChart"
             submenu.addItem(chartItem)
-            return true
+            return submenu
         }
 
+        let submenu = NSMenu()
+        submenu.delegate = self
         let chartView = UsageBreakdownChartMenuView(breakdown: breakdown, width: width)
         let hosting = MenuHostingView(rootView: chartView)
         // Use NSHostingController for efficient size calculation without multiple layout passes
@@ -1310,7 +1309,7 @@ extension StatusItemController {
         chartItem.isEnabled = false
         chartItem.representedObject = "usageBreakdownChart"
         submenu.addItem(chartItem)
-        return true
+        return submenu
     }
 
     private func makeCreditsHistorySubmenu() -> NSMenu? {

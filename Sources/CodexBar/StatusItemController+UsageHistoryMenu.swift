@@ -2,12 +2,33 @@ import AppKit
 import CodexBarCore
 import SwiftUI
 
+private final class UsageHistoryMenuHostingView<Content: View>: NSHostingView<Content> {
+    override var allowsVibrancy: Bool {
+        true
+    }
+}
+
 extension StatusItemController {
     @discardableResult
     func addUsageHistoryMenuItemIfNeeded(to menu: NSMenu, provider: UsageProvider) -> Bool {
         guard let submenu = self.makeUsageHistorySubmenu(provider: provider) else { return false }
         let width: CGFloat = 310
-        menu.addItem(self.makeFixedWidthSubmenuItem(title: "Subscription Utilization", submenu: submenu, width: width))
+        let item = self.makeMenuCardItem(
+            HStack(spacing: 0) {
+                Text("Subscription Utilization")
+                    .font(.system(size: NSFont.menuFont(ofSize: 0).pointSize))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 14)
+                    .padding(.trailing, 28)
+                    .padding(.vertical, 8)
+            },
+            id: "usageHistorySubmenu",
+            width: width,
+            submenu: submenu,
+            submenuIndicatorAlignment: .trailing,
+            submenuIndicatorTopPadding: 0)
+        menu.addItem(item)
         return true
     }
 
@@ -43,7 +64,7 @@ extension StatusItemController {
             snapshot: snapshot,
             width: width,
             isRefreshing: isRefreshing)
-        let hosting = MenuHostingView(rootView: chartView)
+        let hosting = UsageHistoryMenuHostingView(rootView: chartView)
         let controller = NSHostingController(rootView: chartView)
         let size = controller.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
         hosting.frame = NSRect(origin: .zero, size: NSSize(width: width, height: size.height))
