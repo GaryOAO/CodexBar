@@ -46,7 +46,7 @@ struct PlanUtilizationHistoryChartMenuView: View {
     }
 
     private struct Point: Identifiable {
-        let id: String
+        let id: Date
         let index: Int
         let date: Date
         let usedPercent: Double
@@ -57,7 +57,7 @@ struct PlanUtilizationHistoryChartMenuView: View {
         let points: [Point]
         let axisIndexes: [Double]
         let xDomain: ClosedRange<Double>?
-        let pointsByID: [String: Point]
+        let pointsByID: [Date: Point]
         let pointsByIndex: [Int: Point]
         let barColor: Color
         let trackColor: Color
@@ -69,7 +69,7 @@ struct PlanUtilizationHistoryChartMenuView: View {
     private let width: CGFloat
 
     @State private var selectedSeriesID: String?
-    @State private var selectedPointID: String?
+    @State private var selectedPointID: Date?
 
     init(
         provider: UsageProvider,
@@ -320,7 +320,7 @@ struct PlanUtilizationHistoryChartMenuView: View {
                 var cursor = previousPeriodBoundaryDate.addingTimeInterval(windowInterval)
                 while cursor < periodBoundaryDate {
                     points.append(Point(
-                        id: self.pointID(date: cursor),
+                        id: cursor,
                         index: 0,
                         date: cursor,
                         usedPercent: 0,
@@ -331,7 +331,7 @@ struct PlanUtilizationHistoryChartMenuView: View {
 
             if let bucket = strongestObservedPointByPeriod[periodBoundaryDate] {
                 points.append(Point(
-                    id: self.pointID(date: bucket.effectiveBoundaryDate),
+                    id: bucket.effectiveBoundaryDate,
                     index: 0,
                     date: bucket.displayBoundaryDate,
                     usedPercent: bucket.usedPercent,
@@ -350,7 +350,7 @@ struct PlanUtilizationHistoryChartMenuView: View {
                 var cursor = lastObservedPeriodBoundaryDate.addingTimeInterval(windowInterval)
                 while cursor <= currentPeriodBoundaryDate {
                     points.append(Point(
-                        id: self.pointID(date: cursor),
+                        id: cursor,
                         index: 0,
                         date: cursor,
                         usedPercent: 0,
@@ -477,14 +477,6 @@ struct PlanUtilizationHistoryChartMenuView: View {
         let bucketSeconds = Double(windowMinutes) * 60
         let bucketIndex = floor(date.timeIntervalSince1970 / bucketSeconds)
         return Date(timeIntervalSince1970: (bucketIndex + 1) * bucketSeconds)
-    }
-
-    private nonisolated static func pointID(date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter.string(from: date)
     }
 
     private nonisolated static func xDomain(points: [Point]) -> ClosedRange<Double>? {
@@ -759,7 +751,7 @@ struct PlanUtilizationHistoryChartMenuView: View {
         let xInPlot = location.x - plotFrame.origin.x
         guard let xValue: Double = proxy.value(atX: xInPlot) else { return }
 
-        var best: (id: String, distance: Double)?
+        var best: (id: Date, distance: Double)?
         for point in model.points {
             let distance = abs(Double(point.index) - xValue)
             if let current = best {

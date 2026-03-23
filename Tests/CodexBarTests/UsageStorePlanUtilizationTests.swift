@@ -408,8 +408,9 @@ struct UsageStorePlanUtilizationTests {
             provider: .codex,
             referenceDate: boundary.addingTimeInterval(-1))
 
-        #expect(detail.contains("pm"))
+        #expect(detail.contains(" am") || detail.contains(" pm"))
         #expect(!detail.contains("PM"))
+        #expect(!detail.contains("AM"))
     }
 
     @MainActor
@@ -428,8 +429,9 @@ struct UsageStorePlanUtilizationTests {
             provider: .codex,
             referenceDate: boundary.addingTimeInterval(-1))
 
-        #expect(detail.contains("pm"))
+        #expect(detail.contains(" am") || detail.contains(" pm"))
         #expect(!detail.contains("PM"))
+        #expect(!detail.contains("AM"))
     }
 
     @Test
