@@ -6,9 +6,9 @@ import FoundationNetworking
 
 public struct PerplexityUsageFetcher: Sendable {
     private static let log = CodexBarLog.logger(LogCategories.perplexityAPI)
-    // version=2.18&source=default was current as of Feb 2026; update if the endpoint shape changes.
     private static let creditsURL =
         URL(string: "https://www.perplexity.ai/rest/billing/credits?version=2.18&source=default")!
+    // version=2.18&source=default was current as of Feb 2026; update if the endpoint shape changes.
 
     /// Testing hook: parse a raw JSON response without making network calls.
     public static func _parseResponseForTesting(_ data: Data, now: Date = Date()) throws -> PerplexityUsageSnapshot {

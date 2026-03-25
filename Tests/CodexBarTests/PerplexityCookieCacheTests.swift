@@ -7,6 +7,20 @@ struct PerplexityCookieCacheTests {
     private static let testToken = "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0.fake-test-token"
     private static let testCookieName = PerplexityCookieHeader.defaultSessionCookieName
 
+    private struct StubClaudeFetcher: ClaudeUsageFetching {
+        func loadLatestUsage(model _: String) async throws -> ClaudeUsageSnapshot {
+            throw ClaudeUsageError.parseFailed("stub")
+        }
+
+        func debugRawProbe(model _: String) async -> String {
+            "stub"
+        }
+
+        func detectVersion() -> String? {
+            nil
+        }
+    }
+
     // MARK: - Cache round-trip
 
     @Test
@@ -151,5 +165,39 @@ struct PerplexityCookieCacheTests {
         let override = PerplexityCookieHeader.override(from: cached?.cookieHeader)
         #expect(override?.name == Self.testCookieName)
         #expect(override?.token == Self.testToken)
+    }
+
+    @Test
+    func offModeIgnoresCachedSessionCookie() async {
+        KeychainCacheStore.setTestStoreForTesting(true)
+        defer {
+            CookieHeaderCache.clear(provider: .perplexity)
+            KeychainCacheStore.setTestStoreForTesting(false)
+        }
+
+        CookieHeaderCache.store(
+            provider: .perplexity,
+            cookieHeader: "\(Self.testCookieName)=cached-token",
+            sourceLabel: "web")
+
+        let strategy = PerplexityWebFetchStrategy()
+        let settings = ProviderSettingsSnapshot.make(
+            perplexity: ProviderSettingsSnapshot.PerplexityProviderSettings(
+                cookieSource: .off,
+                manualCookieHeader: nil))
+        let context = ProviderFetchContext(
+            runtime: .app,
+            sourceMode: .auto,
+            includeCredits: false,
+            webTimeout: 1,
+            webDebugDumpHTML: false,
+            verbose: false,
+            env: [:],
+            settings: settings,
+            fetcher: UsageFetcher(environment: [:]),
+            claudeFetcher: StubClaudeFetcher(),
+            browserDetection: BrowserDetection(cacheTTL: 0))
+
+        #expect(await strategy.isAvailable(context) == false)
     }
 }

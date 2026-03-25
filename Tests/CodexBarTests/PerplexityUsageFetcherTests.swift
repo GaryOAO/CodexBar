@@ -56,9 +56,9 @@ struct PerplexityUsageFetcherTests {
         """
         let snapshot = try PerplexityUsageFetcher._parseResponseForTesting(Data(json.utf8), now: Self.now)
 
-        #expect(snapshot.recurringUsed == 5000)   // recurring fully consumed
-        #expect(snapshot.purchasedUsed == 3000)   // purchased fully consumed
-        #expect(snapshot.promoUsed == 1000)       // 9000 - 5000 - 3000 = 1000 from promo
+        #expect(snapshot.recurringUsed == 5000) // recurring fully consumed
+        #expect(snapshot.purchasedUsed == 3000) // purchased fully consumed
+        #expect(snapshot.promoUsed == 1000) // 9000 - 5000 - 3000 = 1000 from promo
     }
 
     @Test
@@ -77,7 +77,7 @@ struct PerplexityUsageFetcherTests {
         """
         let snapshot = try PerplexityUsageFetcher._parseResponseForTesting(Data(json.utf8), now: Self.now)
 
-        #expect(snapshot.promoTotal == 0)   // expired grant excluded
+        #expect(snapshot.promoTotal == 0) // expired grant excluded
         #expect(snapshot.promoUsed == 0)
         #expect(snapshot.promoExpiration == nil)
     }

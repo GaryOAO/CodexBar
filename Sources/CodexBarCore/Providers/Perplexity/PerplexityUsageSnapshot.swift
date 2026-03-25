@@ -54,8 +54,8 @@ public struct PerplexityUsageSnapshot: Sendable {
     /// Infer plan name from recurring credit allotment.
     /// Free = 0, Pro = small pool (~500–1000), Max = 10,000+.
     public var planName: String? {
-        if recurringTotal <= 0 { return nil }
-        if recurringTotal < 5_000 { return "Pro" }
+        if self.recurringTotal <= 0 { return nil }
+        if self.recurringTotal < 5000 { return "Pro" }
         return "Max"
     }
 
@@ -70,21 +70,21 @@ extension PerplexityUsageSnapshot {
     public func toUsageSnapshot() -> UsageSnapshot {
         // Primary: recurring (monthly) credits
         // usedPercent=100 when recurringTotal==0 so the bar renders empty rather than full.
-        let primaryPercent = recurringTotal > 0
-            ? min(100, max(0, recurringUsed / recurringTotal * 100))
+        let primaryPercent = self.recurringTotal > 0
+            ? min(100, max(0, self.recurringUsed / self.recurringTotal * 100))
             : 100.0
         let primaryWindow = RateWindow(
             usedPercent: primaryPercent,
             windowMinutes: nil,
             resetsAt: renewalDate,
-            resetDescription: "\(Int(recurringUsed.rounded()))/\(Int(recurringTotal)) credits")
+            resetDescription: "\(Int(recurringUsed.rounded()))/\(Int(self.recurringTotal)) credits")
 
         // Secondary: promotional bonus credits — always shown.
         // usedPercent=100 when promoTotal==0 so the bar renders empty rather than full.
-        let promoPercent = promoTotal > 0
-            ? min(100, max(0, promoUsed / promoTotal * 100))
+        let promoPercent = self.promoTotal > 0
+            ? min(100, max(0, self.promoUsed / self.promoTotal * 100))
             : 100.0
-        var promoDesc = "\(Int(promoUsed.rounded()))/\(Int(promoTotal)) bonus"
+        var promoDesc = "\(Int(promoUsed.rounded()))/\(Int(self.promoTotal)) bonus"
         if let expiry = promoExpiration {
             promoDesc += " \u{00b7} exp. \(Self.promoExpiryFormatter.string(from: expiry))"
         }
@@ -96,14 +96,14 @@ extension PerplexityUsageSnapshot {
 
         // Tertiary: on-demand purchased credits — always shown.
         // usedPercent=100 when purchasedTotal==0 so the bar renders empty rather than full.
-        let purchasedPercent = purchasedTotal > 0
-            ? min(100, max(0, purchasedUsed / purchasedTotal * 100))
+        let purchasedPercent = self.purchasedTotal > 0
+            ? min(100, max(0, self.purchasedUsed / self.purchasedTotal * 100))
             : 100.0
         let tertiary = RateWindow(
             usedPercent: purchasedPercent,
             windowMinutes: nil,
             resetsAt: nil,
-            resetDescription: "\(Int(purchasedUsed.rounded()))/\(Int(purchasedTotal)) credits")
+            resetDescription: "\(Int(purchasedUsed.rounded()))/\(Int(self.purchasedTotal)) credits")
 
         let identity = ProviderIdentitySnapshot(
             providerID: .perplexity,
@@ -116,7 +116,7 @@ extension PerplexityUsageSnapshot {
             secondary: secondary,
             tertiary: tertiary,
             providerCost: nil,
-            updatedAt: updatedAt,
+            updatedAt: self.updatedAt,
             identity: identity)
     }
 }

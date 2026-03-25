@@ -20,12 +20,7 @@ public enum PerplexityCookieImporter {
         }
 
         public var sessionCookie: PerplexityCookieOverride? {
-            for expected in PerplexityCookieHeader.supportedSessionCookieNames {
-                if let cookie = self.cookies.first(where: { $0.name.caseInsensitiveCompare(expected) == .orderedSame }) {
-                    return PerplexityCookieOverride(name: cookie.name, token: cookie.value)
-                }
-            }
-            return nil
+            PerplexityCookieHeader.sessionCookie(from: self.cookies)
         }
 
         public var sessionToken: String? {

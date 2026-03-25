@@ -1,18 +1,28 @@
 import Foundation
 
 public enum PerplexitySettingsReader {
-    public static func sessionToken(
-        environment: [String: String] = ProcessInfo.processInfo.environment) -> String?
+    public static func sessionCookieOverride(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> PerplexityCookieOverride?
     {
         let raw = environment["PERPLEXITY_SESSION_TOKEN"]
             ?? environment["perplexity_session_token"]
-        if let token = self.cleaned(raw) { return token }
+        if let token = self.cleaned(raw) {
+            return PerplexityCookieOverride(
+                name: PerplexityCookieHeader.defaultSessionCookieName,
+                token: token)
+        }
 
-        // PERPLEXITY_COOKIE may be a full Cookie header string; extract the session token from it.
+        // PERPLEXITY_COOKIE may be a full Cookie header string; preserve the matching session cookie name.
         if let cookieRaw = environment["PERPLEXITY_COOKIE"] {
-            return PerplexityCookieHeader.override(from: self.cleaned(cookieRaw))?.token
+            return PerplexityCookieHeader.override(from: self.cleaned(cookieRaw))
         }
         return nil
+    }
+
+    public static func sessionToken(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> String?
+    {
+        self.sessionCookieOverride(environment: environment)?.token
     }
 
     private static func cleaned(_ raw: String?) -> String? {
