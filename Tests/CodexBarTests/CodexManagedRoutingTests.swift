@@ -7,10 +7,20 @@ import Testing
 @MainActor
 struct CodexManagedRoutingTests {
     @Test
-    func `provider registry injects active managed home into codex env only`() {
+    func `provider registry injects managed home when active source is managed account`() {
         let settings = self.makeSettingsStore(suite: "CodexManagedRoutingTests-registry")
-        let managedHomePath = "/tmp/codex-managed-home"
-        settings._test_activeManagedCodexRemoteHomePath = managedHomePath
+        let managedAccount = ManagedCodexAccount(
+            id: UUID(),
+            email: "managed@example.com",
+            managedHomePath: "/tmp/codex-managed-home",
+            createdAt: 1,
+            updatedAt: 1,
+            lastAuthenticatedAt: 1)
+        settings._test_activeManagedCodexAccount = managedAccount
+        settings.codexActiveSource = .managedAccount(id: managedAccount.id)
+        defer {
+            settings._test_activeManagedCodexAccount = nil
+        }
 
         let codexEnv = ProviderRegistry.makeEnvironment(
             base: ["PATH": "/usr/bin"],
@@ -23,8 +33,43 @@ struct CodexManagedRoutingTests {
             settings: settings,
             tokenOverride: nil)
 
-        #expect(codexEnv["CODEX_HOME"] == managedHomePath)
+        #expect(codexEnv["CODEX_HOME"] == managedAccount.managedHomePath)
         #expect(claudeEnv["CODEX_HOME"] == nil)
+    }
+
+    @Test
+    func `provider registry preserves ambient live system home when active source is live system`() {
+        let settings = self.makeSettingsStore(suite: "CodexManagedRoutingTests-live-system-routing")
+        let managedHomePath = "/tmp/managed-remote-home"
+        let liveHomePath = "/tmp/system-remote-home"
+        let managedAccount = ManagedCodexAccount(
+            id: UUID(),
+            email: "managed@example.com",
+            managedHomePath: managedHomePath,
+            createdAt: 1,
+            updatedAt: 1,
+            lastAuthenticatedAt: 1)
+        let liveSystemAccount = ObservedSystemCodexAccount(
+            email: "system@example.com",
+            codexHomePath: liveHomePath,
+            observedAt: Date())
+
+        settings._test_activeManagedCodexAccount = managedAccount
+        settings._test_liveSystemCodexAccount = liveSystemAccount
+        settings.codexActiveSource = .liveSystem
+        defer {
+            settings._test_activeManagedCodexAccount = nil
+            settings._test_liveSystemCodexAccount = nil
+        }
+
+        let env = ProviderRegistry.makeEnvironment(
+            base: ["CODEX_HOME": liveHomePath],
+            provider: .codex,
+            settings: settings,
+            tokenOverride: nil)
+
+        #expect(env["CODEX_HOME"] == liveHomePath)
+        #expect(env["CODEX_HOME"] != managedHomePath)
     }
 
     @Test
@@ -44,12 +89,11 @@ struct CodexManagedRoutingTests {
             codexHomePath: liveHomePath,
             observedAt: Date())
 
-        settings._test_activeManagedCodexRemoteHomePath = nil
         settings._test_activeManagedCodexAccount = managedAccount
         settings._test_liveSystemCodexAccount = liveSystemAccount
+        settings.codexActiveSource = .managedAccount(id: managedAccount.id)
         defer {
             settings._test_activeManagedCodexAccount = nil
-            settings._test_activeManagedCodexRemoteHomePath = nil
             settings._test_liveSystemCodexAccount = nil
         }
 
@@ -67,6 +111,7 @@ struct CodexManagedRoutingTests {
     func `provider registry fails closed when managed account store is unreadable`() {
         let settings = self.makeSettingsStore(suite: "CodexManagedRoutingTests-unreadable-store")
         settings._test_unreadableManagedCodexAccountStore = true
+        settings.codexActiveSource = .managedAccount(id: UUID())
 
         let env = ProviderRegistry.makeEnvironment(
             base: ["CODEX_HOME": "/Users/example/.codex"],
@@ -80,6 +125,45 @@ struct CodexManagedRoutingTests {
     }
 
     @Test
+    func `provider registry fails closed when selected managed source is missing from readable store`() throws {
+        let settings = self.makeSettingsStore(suite: "CodexManagedRoutingTests-missing-managed-source")
+        let storedAccount = ManagedCodexAccount(
+            id: UUID(),
+            email: "stored@example.com",
+            managedHomePath: "/tmp/stored-managed-home",
+            createdAt: 1,
+            updatedAt: 1,
+            lastAuthenticatedAt: 1)
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-managed-routing-\(UUID().uuidString).json")
+        let store = FileManagedCodexAccountStore(fileURL: storeURL)
+        try store.storeAccounts(ManagedCodexAccountSet(
+            version: FileManagedCodexAccountStore.currentVersion,
+            accounts: [storedAccount],
+            activeAccountID: storedAccount.id))
+        settings._test_managedCodexAccountStoreURL = storeURL
+        settings.codexActiveSource = .managedAccount(id: UUID())
+        defer {
+            settings._test_managedCodexAccountStoreURL = nil
+            try? FileManager.default.removeItem(at: storeURL)
+        }
+
+        let ambientHome = "/Users/example/.codex"
+        let expectedFailClosedPath = ManagedCodexHomeFactory.defaultRootURL()
+            .appendingPathComponent("managed-store-unreadable", isDirectory: true)
+            .path
+        let env = ProviderRegistry.makeEnvironment(
+            base: ["CODEX_HOME": ambientHome],
+            provider: .codex,
+            settings: settings,
+            tokenOverride: nil)
+
+        #expect(env["CODEX_HOME"] == expectedFailClosedPath)
+        #expect(env["CODEX_HOME"] != ambientHome)
+        #expect(env["CODEX_HOME"] != storedAccount.managedHomePath)
+    }
+
+    @Test
     func `provider registry builds codex fetcher scoped to managed home`() throws {
         let settings = self.makeSettingsStore(suite: "CodexManagedRoutingTests-registry-fetcher")
         let managedHome = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -88,7 +172,11 @@ struct CodexManagedRoutingTests {
         defer { try? FileManager.default.removeItem(at: managedHome) }
 
         settings._test_activeManagedCodexRemoteHomePath = managedHome.path
+        settings.codexActiveSource = .managedAccount(id: UUID())
         try self.writeCodexAuthFile(homeURL: managedHome, email: "managed@example.com", plan: "pro")
+        defer {
+            settings._test_activeManagedCodexRemoteHomePath = nil
+        }
 
         let browserDetection = BrowserDetection(cacheTTL: 0)
         let specs = ProviderRegistry.shared.specs(
@@ -113,7 +201,11 @@ struct CodexManagedRoutingTests {
         defer { try? FileManager.default.removeItem(at: managedHome) }
 
         settings._test_activeManagedCodexRemoteHomePath = managedHome.path
+        settings.codexActiveSource = .managedAccount(id: UUID())
         try self.writeCodexAuthFile(homeURL: managedHome, email: "token@example.com", plan: "team")
+        defer {
+            settings._test_activeManagedCodexRemoteHomePath = nil
+        }
 
         let store = UsageStore(
             fetcher: UsageFetcher(environment: [:]),
@@ -136,7 +228,11 @@ struct CodexManagedRoutingTests {
         defer { try? FileManager.default.removeItem(at: managedHome) }
 
         settings._test_activeManagedCodexRemoteHomePath = managedHome.path
+        settings.codexActiveSource = .managedAccount(id: UUID())
         try self.writeCodexAuthFile(homeURL: managedHome, email: "credits@example.com", plan: "enterprise")
+        defer {
+            settings._test_activeManagedCodexRemoteHomePath = nil
+        }
 
         let store = UsageStore(
             fetcher: UsageFetcher(environment: [:]),

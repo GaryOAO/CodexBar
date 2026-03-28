@@ -14,13 +14,16 @@ extension SettingsStore {
             .path
     }
 
-    private func managedCodexAccountStoreState() -> ManagedCodexAccountStoreState {
+    private func loadManagedCodexAccounts() throws -> ManagedCodexAccountSet {
         #if DEBUG
         if CodexManagedRemoteHomeTestingOverride.isUnreadable(for: self) {
-            return .unreadable
+            throw CodexManagedRemoteHomeTestingOverrideError.unreadableManagedStore
         }
         if let override = CodexManagedRemoteHomeTestingOverride.account(for: self) {
-            return .active(override)
+            return ManagedCodexAccountSet(
+                version: FileManagedCodexAccountStore.currentVersion,
+                accounts: [override],
+                activeAccountID: override.id)
         }
         let store = if let storeURL = CodexManagedRemoteHomeTestingOverride.managedStoreURL(for: self) {
             FileManagedCodexAccountStore(fileURL: storeURL)
@@ -31,8 +34,12 @@ extension SettingsStore {
         let store = FileManagedCodexAccountStore()
         #endif
 
+        return try store.loadAccounts()
+    }
+
+    private func managedCodexAccountStoreState() -> ManagedCodexAccountStoreState {
         do {
-            let accounts = try store.loadAccounts()
+            let accounts = try self.loadManagedCodexAccounts()
             guard let activeAccountID = accounts.activeAccountID,
                   let account = accounts.account(id: activeAccountID)
             else {
@@ -52,19 +59,26 @@ extension SettingsStore {
     }
 
     var activeManagedCodexRemoteHomePath: String? {
+        if case .liveSystem = self.codexActiveSource {
+            return nil
+        }
+
         #if DEBUG
         if let override = CodexManagedRemoteHomeTestingOverride.homePath(for: self) {
             return override
         }
         #endif
 
-        switch self.managedCodexAccountStoreState() {
-        case let .active(account):
-            return account.managedHomePath
-        case .unreadable:
-            return Self.failClosedManagedCodexHomePath()
-        case .none:
+        guard case let .managedAccount(id) = self.codexActiveSource else {
             return nil
+        }
+
+        do {
+            let accounts = try self.loadManagedCodexAccounts()
+            // A selected managed source must never fall back to ambient ~/.codex.
+            return accounts.account(id: id)?.managedHomePath ?? Self.failClosedManagedCodexHomePath()
+        } catch {
+            return Self.failClosedManagedCodexHomePath()
         }
     }
 
