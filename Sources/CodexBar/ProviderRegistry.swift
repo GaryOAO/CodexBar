@@ -45,6 +45,7 @@ struct ProviderRegistry {
                         provider: provider,
                         settings: settings,
                         tokenOverride: nil)
+                    let fetcher = Self.makeFetcher(base: codexFetcher, provider: provider, env: env)
                     let verbose = settings.isVerboseLoggingEnabled
                     return ProviderFetchContext(
                         runtime: .app,
@@ -55,7 +56,7 @@ struct ProviderRegistry {
                         verbose: verbose,
                         env: env,
                         settings: snapshot,
-                        fetcher: codexFetcher,
+                        fetcher: fetcher,
                         claudeFetcher: claudeFetcher,
                         browserDetection: browserDetection)
                 })
@@ -107,6 +108,14 @@ struct ProviderRegistry {
                 env[key] = value
             }
         }
+        if provider == .codex, let managedHomePath = settings.activeManagedCodexRemoteHomePath {
+            env = CodexHomeScope.scopedEnvironment(base: env, codexHome: managedHomePath)
+        }
         return env
+    }
+
+    static func makeFetcher(base: UsageFetcher, provider: UsageProvider, env: [String: String]) -> UsageFetcher {
+        guard provider == .codex else { return base }
+        return UsageFetcher(environment: env)
     }
 }
