@@ -5,6 +5,7 @@ struct CodexVisibleAccount: Equatable, Sendable, Identifiable {
     let id: String
     let email: String
     let storedAccountID: UUID?
+    let selectionSource: CodexActiveSource
     let isActive: Bool
     let isLive: Bool
     let canReauthenticate: Bool
@@ -16,6 +17,53 @@ struct CodexVisibleAccountProjection: Equatable, Sendable {
     let activeVisibleAccountID: String?
     let liveVisibleAccountID: String?
     let hasUnreadableAddedAccountStore: Bool
+
+    func source(forVisibleAccountID id: String) -> CodexActiveSource? {
+        self.visibleAccounts.first { $0.id == id }?.selectionSource
+    }
+}
+
+struct CodexResolvedActiveSource: Equatable, Sendable {
+    let persistedSource: CodexActiveSource
+    let resolvedSource: CodexActiveSource
+
+    var requiresPersistenceCorrection: Bool {
+        self.persistedSource != self.resolvedSource
+    }
+}
+
+enum CodexActiveSourceResolver {
+    static func resolve(from snapshot: CodexAccountReconciliationSnapshot) -> CodexResolvedActiveSource {
+        let persistedSource = snapshot.activeSource
+        let resolvedSource: CodexActiveSource = switch persistedSource {
+        case .liveSystem:
+            .liveSystem
+        case let .managedAccount(id):
+            if let activeStoredAccount = snapshot.activeStoredAccount {
+                self.matchesLiveSystemAccountEmail(
+                    storedAccount: activeStoredAccount,
+                    liveSystemAccount: snapshot.liveSystemAccount) ? .liveSystem : .managedAccount(id: id)
+            } else {
+                snapshot.liveSystemAccount != nil ? .liveSystem : .managedAccount(id: id)
+            }
+        }
+
+        return CodexResolvedActiveSource(
+            persistedSource: persistedSource,
+            resolvedSource: resolvedSource)
+    }
+
+    private static func matchesLiveSystemAccountEmail(
+        storedAccount: ManagedCodexAccount,
+        liveSystemAccount: ObservedSystemCodexAccount?) -> Bool
+    {
+        guard let liveSystemAccount else { return false }
+        return Self.normalizeEmail(storedAccount.email) == Self.normalizeEmail(liveSystemAccount.email)
+    }
+
+    private static func normalizeEmail(_ email: String) -> String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
 }
 
 struct CodexAccountReconciliationSnapshot: Equatable, Sendable {
@@ -116,13 +164,16 @@ struct DefaultCodexAccountReconciler {
 
 extension CodexVisibleAccountProjection {
     static func make(from snapshot: CodexAccountReconciliationSnapshot) -> CodexVisibleAccountProjection {
+        let resolvedActiveSource = CodexActiveSourceResolver.resolve(from: snapshot).resolvedSource
         var visibleByEmail: [String: CodexVisibleAccount] = [:]
 
         for storedAccount in snapshot.storedAccounts {
-            visibleByEmail[storedAccount.email] = CodexVisibleAccount(
-                id: storedAccount.email,
-                email: storedAccount.email,
+            let normalizedEmail = Self.normalizeVisibleEmail(storedAccount.email)
+            visibleByEmail[normalizedEmail] = CodexVisibleAccount(
+                id: normalizedEmail,
+                email: normalizedEmail,
                 storedAccountID: storedAccount.id,
+                selectionSource: .managedAccount(id: storedAccount.id),
                 isActive: false,
                 isLive: false,
                 canReauthenticate: true,
@@ -130,20 +181,23 @@ extension CodexVisibleAccountProjection {
         }
 
         if let liveSystemAccount = snapshot.liveSystemAccount {
-            if let existing = visibleByEmail[liveSystemAccount.email] {
-                visibleByEmail[liveSystemAccount.email] = CodexVisibleAccount(
+            let normalizedEmail = Self.normalizeVisibleEmail(liveSystemAccount.email)
+            if let existing = visibleByEmail[normalizedEmail] {
+                visibleByEmail[normalizedEmail] = CodexVisibleAccount(
                     id: existing.id,
                     email: existing.email,
                     storedAccountID: existing.storedAccountID,
+                    selectionSource: .liveSystem,
                     isActive: existing.isActive,
                     isLive: true,
                     canReauthenticate: existing.canReauthenticate,
                     canRemove: existing.canRemove)
             } else {
-                visibleByEmail[liveSystemAccount.email] = CodexVisibleAccount(
-                    id: liveSystemAccount.email,
-                    email: liveSystemAccount.email,
+                visibleByEmail[normalizedEmail] = CodexVisibleAccount(
+                    id: normalizedEmail,
+                    email: normalizedEmail,
                     storedAccountID: nil,
+                    selectionSource: .liveSystem,
                     isActive: false,
                     isLive: true,
                     canReauthenticate: true,
@@ -151,11 +205,11 @@ extension CodexVisibleAccountProjection {
             }
         }
 
-        let activeEmail: String? = switch snapshot.activeSource {
+        let activeEmail: String? = switch resolvedActiveSource {
         case let .managedAccount(id):
-            snapshot.storedAccounts.first { $0.id == id }?.email
+            snapshot.storedAccounts.first { $0.id == id }.map { Self.normalizeVisibleEmail($0.email) }
         case .liveSystem:
-            snapshot.liveSystemAccount?.email
+            snapshot.liveSystemAccount.map { Self.normalizeVisibleEmail($0.email) }
         }
 
         if let activeEmail, let current = visibleByEmail[activeEmail] {
@@ -163,6 +217,7 @@ extension CodexVisibleAccountProjection {
                 id: current.id,
                 email: current.email,
                 storedAccountID: current.storedAccountID,
+                selectionSource: current.selectionSource,
                 isActive: true,
                 isLive: current.isLive,
                 canReauthenticate: current.canReauthenticate,
@@ -178,6 +233,10 @@ extension CodexVisibleAccountProjection {
             activeVisibleAccountID: visibleAccounts.first { $0.isActive }?.id,
             liveVisibleAccountID: visibleAccounts.first { $0.isLive }?.id,
             hasUnreadableAddedAccountStore: snapshot.hasUnreadableAddedAccountStore)
+    }
+
+    private static func normalizeVisibleEmail(_ email: String) -> String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 

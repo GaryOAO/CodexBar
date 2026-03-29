@@ -407,6 +407,7 @@ final class UsageStore {
 
     func refresh(forceTokenUsage: Bool = false) async {
         guard !self.isRefreshing else { return }
+        self.prepareRefreshState()
         let refreshPhase: ProviderRefreshPhase = self.hasCompletedInitialRefresh ? .regular : .startup
         let refreshStartedAt = Date()
 

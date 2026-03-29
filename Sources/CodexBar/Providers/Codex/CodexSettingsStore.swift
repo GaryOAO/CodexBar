@@ -2,6 +2,17 @@ import CodexBarCore
 import Foundation
 
 extension SettingsStore {
+    private var codexPersistedActiveSource: CodexActiveSource {
+        if let persistedSource = self.providerConfig(for: .codex)?.codexActiveSource {
+            return persistedSource
+        }
+        let source = CodexActiveSource.liveSystem
+        self.updateProviderConfig(provider: .codex) { entry in
+            entry.codexActiveSource = source
+        }
+        return source
+    }
+
     private enum ManagedCodexAccountStoreState {
         case none
         case selected(ManagedCodexAccount)
@@ -37,7 +48,7 @@ extension SettingsStore {
     }
 
     private func managedCodexAccountStoreState() -> ManagedCodexAccountStoreState {
-        guard case let .managedAccount(id) = self.codexActiveSource else {
+        guard case let .managedAccount(id) = self.codexResolvedActiveSource else {
             return .none
         }
         do {
@@ -60,7 +71,7 @@ extension SettingsStore {
     }
 
     var activeManagedCodexRemoteHomePath: String? {
-        guard case .managedAccount = self.codexActiveSource else {
+        guard case .managedAccount = self.codexResolvedActiveSource else {
             return nil
         }
 
@@ -70,7 +81,7 @@ extension SettingsStore {
         }
         #endif
 
-        guard case let .managedAccount(id) = self.codexActiveSource else {
+        guard case let .managedAccount(id) = self.codexResolvedActiveSource else {
             return nil
         }
 
@@ -95,21 +106,21 @@ extension SettingsStore {
     }
 
     var hasUnreadableManagedCodexAccountStore: Bool {
+        self.codexAccountReconciliationSnapshot.hasUnreadableAddedAccountStore
+    }
+
+    private var hasUnreadableSelectedManagedCodexAccountStore: Bool {
+        guard case .managedAccount = self.codexResolvedActiveSource else {
+            return false
+        }
         if case .unreadable = self.managedCodexAccountStoreState() {
             return true
         }
         return false
     }
 
-    private var hasUnreadableSelectedManagedCodexAccountStore: Bool {
-        guard case .managedAccount = self.codexActiveSource else {
-            return false
-        }
-        return self.hasUnreadableManagedCodexAccountStore
-    }
-
     private var hasUnavailableSelectedManagedCodexAccount: Bool {
-        guard case let .managedAccount(id) = self.codexActiveSource else {
+        guard case let .managedAccount(id) = self.codexResolvedActiveSource else {
             return false
         }
         guard self.hasUnreadableManagedCodexAccountStore == false else {
@@ -143,20 +154,29 @@ extension SettingsStore {
 
     var codexActiveSource: CodexActiveSource {
         get {
-            if let persistedSource = self.providerConfig(for: .codex)?.codexActiveSource {
-                return persistedSource
-            }
-            let source = CodexActiveSource.liveSystem
-            self.updateProviderConfig(provider: .codex) { entry in
-                entry.codexActiveSource = source
-            }
-            return source
+            self.codexPersistedActiveSource
         }
         set {
             self.updateProviderConfig(provider: .codex) { entry in
                 entry.codexActiveSource = newValue
             }
         }
+    }
+
+    var codexResolvedActiveSource: CodexActiveSource {
+        self.codexResolvedActiveSourceState.resolvedSource
+    }
+
+    var codexResolvedActiveSourceState: CodexResolvedActiveSource {
+        CodexActiveSourceResolver.resolve(from: self.codexAccountReconciliationSnapshot)
+    }
+
+    @discardableResult
+    func persistResolvedCodexActiveSourceCorrectionIfNeeded() -> Bool {
+        let resolution = self.codexResolvedActiveSourceState
+        guard resolution.requiresPersistenceCorrection else { return false }
+        self.codexActiveSource = resolution.resolvedSource
+        return true
     }
 
     var codexCookieHeader: String {
@@ -201,6 +221,10 @@ extension SettingsStore {
         self.codexVisibleAccountProjection.visibleAccounts
     }
 
+    func codexSource(forVisibleAccountID id: String) -> CodexActiveSource? {
+        self.codexVisibleAccountProjection.source(forVisibleAccountID: id)
+    }
+
     private func codexAccountReconciler() -> DefaultCodexAccountReconciler {
         #if DEBUG
         let liveSystemAccountOverride = CodexManagedRemoteHomeTestingOverride.liveSystemAccount(for: self)
@@ -210,7 +234,7 @@ extension SettingsStore {
         let managedStoreURLOverride = CodexManagedRemoteHomeTestingOverride.managedStoreURL(for: self)
         let unreadableStoreOverride = CodexManagedRemoteHomeTestingOverride.isUnreadable(for: self)
         guard CodexManagedRemoteHomeTestingOverride.hasAnyOverride(for: self) else {
-            return DefaultCodexAccountReconciler(activeSource: self.codexActiveSource)
+            return DefaultCodexAccountReconciler(activeSource: self.codexPersistedActiveSource)
         }
 
         let storeLoader: @Sendable () throws -> ManagedCodexAccountSet
@@ -236,9 +260,9 @@ extension SettingsStore {
             systemObserver: CodexManagedRemoteHomeTestingSystemObserver(
                 overrideAccount: liveSystemAccountOverride,
                 usesInjectedEnvironment: reconciliationEnvironmentOverride != nil),
-            activeSource: self.codexActiveSource)
+            activeSource: self.codexPersistedActiveSource)
         #else
-        return DefaultCodexAccountReconciler(activeSource: self.codexActiveSource)
+        return DefaultCodexAccountReconciler(activeSource: self.codexPersistedActiveSource)
         #endif
     }
 

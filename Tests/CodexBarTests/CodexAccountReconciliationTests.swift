@@ -302,6 +302,81 @@ struct CodexAccountReconciliationTests {
     }
 
     @Test
+    func `matching live system account resolves merged row selection to live system`() {
+        let stored = ManagedCodexAccount(
+            id: UUID(),
+            email: "user@example.com",
+            managedHomePath: "/tmp/managed-a",
+            createdAt: 1,
+            updatedAt: 2,
+            lastAuthenticatedAt: 3)
+        let live = ObservedSystemCodexAccount(
+            email: "USER@example.com",
+            codexHomePath: "/Users/test/.codex",
+            observedAt: Date())
+        let snapshot = CodexAccountReconciliationSnapshot(
+            storedAccounts: [stored],
+            activeStoredAccount: stored,
+            liveSystemAccount: live,
+            matchingStoredAccountForLiveSystemAccount: stored,
+            activeSource: .managedAccount(id: stored.id),
+            hasUnreadableAddedAccountStore: false)
+
+        let resolution = CodexActiveSourceResolver.resolve(from: snapshot)
+        let projection = CodexVisibleAccountProjection.make(from: snapshot)
+
+        #expect(resolution.persistedSource == .managedAccount(id: stored.id))
+        #expect(resolution.resolvedSource == .liveSystem)
+        #expect(resolution.requiresPersistenceCorrection)
+        #expect(projection.activeVisibleAccountID == "user@example.com")
+        #expect(projection.source(forVisibleAccountID: "user@example.com") == .liveSystem)
+    }
+
+    @Test
+    func `missing managed source resolves to live system when live account exists`() {
+        let live = ObservedSystemCodexAccount(
+            email: "live@example.com",
+            codexHomePath: "/Users/test/.codex",
+            observedAt: Date())
+        let missingID = UUID()
+        let snapshot = CodexAccountReconciliationSnapshot(
+            storedAccounts: [],
+            activeStoredAccount: nil,
+            liveSystemAccount: live,
+            matchingStoredAccountForLiveSystemAccount: nil,
+            activeSource: .managedAccount(id: missingID),
+            hasUnreadableAddedAccountStore: false)
+
+        let resolution = CodexActiveSourceResolver.resolve(from: snapshot)
+
+        #expect(resolution.persistedSource == .managedAccount(id: missingID))
+        #expect(resolution.resolvedSource == .liveSystem)
+        #expect(resolution.requiresPersistenceCorrection)
+    }
+
+    @Test
+    func `unreadable managed source resolves to live system when live account exists`() {
+        let live = ObservedSystemCodexAccount(
+            email: "live@example.com",
+            codexHomePath: "/Users/test/.codex",
+            observedAt: Date())
+        let unreadableID = UUID()
+        let snapshot = CodexAccountReconciliationSnapshot(
+            storedAccounts: [],
+            activeStoredAccount: nil,
+            liveSystemAccount: live,
+            matchingStoredAccountForLiveSystemAccount: nil,
+            activeSource: .managedAccount(id: unreadableID),
+            hasUnreadableAddedAccountStore: true)
+
+        let resolution = CodexActiveSourceResolver.resolve(from: snapshot)
+
+        #expect(resolution.persistedSource == .managedAccount(id: unreadableID))
+        #expect(resolution.resolvedSource == .liveSystem)
+        #expect(resolution.requiresPersistenceCorrection)
+    }
+
+    @Test
     func `managed account remains active when active source stays managed while live account changes`() {
         let managed = ManagedCodexAccount(
             id: UUID(),

@@ -12,6 +12,7 @@ final class ManagedCodexAccountCoordinator {
     let service: ManagedCodexAccountService
     private(set) var isAuthenticatingManagedAccount: Bool = false
     private(set) var authenticatingManagedAccountID: UUID?
+    var onManagedAccountsDidChange: (@MainActor () -> Void)?
 
     init(service: ManagedCodexAccountService = ManagedCodexAccountService()) {
         self.service = service
@@ -33,12 +34,15 @@ final class ManagedCodexAccountCoordinator {
             self.authenticatingManagedAccountID = nil
         }
 
-        return try await self.service.authenticateManagedAccount(
+        let account = try await self.service.authenticateManagedAccount(
             existingAccountID: existingAccountID,
             timeout: timeout)
+        self.onManagedAccountsDidChange?()
+        return account
     }
 
     func removeManagedAccount(id: UUID) async throws {
         try await self.service.removeManagedAccount(id: id)
+        self.onManagedAccountsDidChange?()
     }
 }

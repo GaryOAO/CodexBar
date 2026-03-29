@@ -246,6 +246,39 @@ struct CodexManagedOpenAIWebTests {
     }
 
     @Test
+    func `open A I web prefers live identity when managed and live share email`() {
+        let settings = self.makeSettingsStore(suite: "CodexManagedOpenAIWebTests-same-email-prefers-live")
+        let managedAccount = ManagedCodexAccount(
+            id: UUID(),
+            email: "person@example.com",
+            managedHomePath: "/tmp/managed-codex-home",
+            createdAt: 1,
+            updatedAt: 1,
+            lastAuthenticatedAt: 1)
+        let liveAccount = ObservedSystemCodexAccount(
+            email: "PERSON@example.com",
+            codexHomePath: "/tmp/live-codex-home",
+            observedAt: Date())
+        settings._test_activeManagedCodexAccount = managedAccount
+        settings._test_liveSystemCodexAccount = liveAccount
+        settings.codexActiveSource = .managedAccount(id: managedAccount.id)
+        defer {
+            settings._test_activeManagedCodexAccount = nil
+            settings._test_liveSystemCodexAccount = nil
+        }
+
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: ["CODEX_HOME": liveAccount.codexHomePath]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing)
+
+        #expect(settings.codexResolvedActiveSource == .liveSystem)
+        #expect(store.codexAccountEmailForOpenAIDashboard() == "person@example.com")
+        #expect(store.codexCookieCacheScopeForOpenAIWeb() == nil)
+    }
+
+    @Test
     func `unmanaged codex open A I web falls back to provider global cache scope`() {
         let settings = self.makeSettingsStore(suite: "CodexManagedOpenAIWebTests-unmanaged")
         let store = UsageStore(

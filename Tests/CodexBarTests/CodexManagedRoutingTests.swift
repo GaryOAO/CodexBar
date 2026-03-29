@@ -108,6 +108,100 @@ struct CodexManagedRoutingTests {
     }
 
     @Test
+    func `provider registry prefers live system routing when managed and live share email`() {
+        let settings = self.makeSettingsStore(suite: "CodexManagedRoutingTests-same-email-prefers-live")
+        let managedHomePath = "/tmp/managed-remote-home"
+        let liveHomePath = "/tmp/system-remote-home"
+        let managedAccount = ManagedCodexAccount(
+            id: UUID(),
+            email: "person@example.com",
+            managedHomePath: managedHomePath,
+            createdAt: 1,
+            updatedAt: 1,
+            lastAuthenticatedAt: 1)
+        let liveSystemAccount = ObservedSystemCodexAccount(
+            email: "PERSON@example.com",
+            codexHomePath: liveHomePath,
+            observedAt: Date())
+
+        settings._test_activeManagedCodexAccount = managedAccount
+        settings._test_liveSystemCodexAccount = liveSystemAccount
+        settings.codexActiveSource = .managedAccount(id: managedAccount.id)
+        defer {
+            settings._test_activeManagedCodexAccount = nil
+            settings._test_liveSystemCodexAccount = nil
+        }
+
+        let env = ProviderRegistry.makeEnvironment(
+            base: ["CODEX_HOME": liveHomePath],
+            provider: .codex,
+            settings: settings,
+            tokenOverride: nil)
+
+        #expect(settings.codexResolvedActiveSource == .liveSystem)
+        #expect(env["CODEX_HOME"] == liveHomePath)
+        #expect(env["CODEX_HOME"] != managedHomePath)
+    }
+
+    @Test
+    func `persisted managed source corrects to live system when selected row collapses with live account`() {
+        let settings = self.makeSettingsStore(suite: "CodexManagedRoutingTests-same-email-persist-correction")
+        let managedAccount = ManagedCodexAccount(
+            id: UUID(),
+            email: "person@example.com",
+            managedHomePath: "/tmp/managed-remote-home",
+            createdAt: 1,
+            updatedAt: 1,
+            lastAuthenticatedAt: 1)
+        let liveSystemAccount = ObservedSystemCodexAccount(
+            email: "PERSON@example.com",
+            codexHomePath: "/tmp/system-remote-home",
+            observedAt: Date())
+
+        settings._test_activeManagedCodexAccount = managedAccount
+        settings._test_liveSystemCodexAccount = liveSystemAccount
+        settings.codexActiveSource = .managedAccount(id: managedAccount.id)
+        defer {
+            settings._test_activeManagedCodexAccount = nil
+            settings._test_liveSystemCodexAccount = nil
+        }
+
+        let corrected = settings.persistResolvedCodexActiveSourceCorrectionIfNeeded()
+
+        #expect(corrected)
+        #expect(settings.codexActiveSource == .liveSystem)
+    }
+
+    @Test
+    func `codex provider refresh persists live correction for stale managed source`() async {
+        let settings = self.makeSettingsStore(suite: "CodexManagedRoutingTests-provider-refresh-persists-correction")
+        let ambientHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: ambientHome) }
+
+        try? self.writeCodexAuthFile(homeURL: ambientHome, email: "live@example.com", plan: "pro")
+        settings._test_liveSystemCodexAccount = ObservedSystemCodexAccount(
+            email: "live@example.com",
+            codexHomePath: ambientHome.path,
+            observedAt: Date())
+        settings.codexActiveSource = .managedAccount(id: UUID())
+        defer { settings._test_liveSystemCodexAccount = nil }
+
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: ["CODEX_HOME": ambientHome.path]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings,
+            startupBehavior: .testing)
+
+        #expect(settings.codexActiveSource != .liveSystem)
+
+        await store.refreshProvider(.codex, allowDisabled: true)
+
+        #expect(settings.codexActiveSource == .liveSystem)
+    }
+
+    @Test
     func `provider registry fails closed when managed account store is unreadable`() {
         let settings = self.makeSettingsStore(suite: "CodexManagedRoutingTests-unreadable-store")
         settings._test_unreadableManagedCodexAccountStore = true

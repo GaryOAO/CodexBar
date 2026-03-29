@@ -2,12 +2,18 @@ import CodexBarCore
 import Foundation
 
 extension UsageStore {
+    func prepareRefreshState(for provider: UsageProvider? = nil) {
+        guard provider == nil || provider == .codex else { return }
+        _ = self.settings.persistResolvedCodexActiveSourceCorrectionIfNeeded()
+    }
+
     /// Force refresh Augment session (called from UI button)
     func forceRefreshAugmentSession() async {
         await self.performRuntimeAction(.forceSessionRefresh, for: .augment)
     }
 
     func refreshProvider(_ provider: UsageProvider, allowDisabled: Bool = false) async {
+        self.prepareRefreshState(for: provider)
         guard let spec = self.providerSpecs[provider] else { return }
 
         if !spec.isEnabled(), !allowDisabled {

@@ -42,11 +42,15 @@ struct CodexBarApp: App {
 
         let preferencesSelection = PreferencesSelection()
         let settings = SettingsStore()
+        let managedCodexAccountCoordinator = ManagedCodexAccountCoordinator()
+        managedCodexAccountCoordinator.onManagedAccountsDidChange = {
+            _ = settings.persistResolvedCodexActiveSourceCorrectionIfNeeded()
+        }
+        _ = settings.persistResolvedCodexActiveSourceCorrectionIfNeeded()
         let fetcher = UsageFetcher()
         let browserDetection = BrowserDetection(cacheTTL: BrowserDetection.defaultCacheTTL)
         let account = fetcher.loadAccountInfo()
         let store = UsageStore(fetcher: fetcher, browserDetection: browserDetection, settings: settings)
-        let managedCodexAccountCoordinator = ManagedCodexAccountCoordinator()
         self.preferencesSelection = preferencesSelection
         _settings = State(wrappedValue: settings)
         _store = State(wrappedValue: store)

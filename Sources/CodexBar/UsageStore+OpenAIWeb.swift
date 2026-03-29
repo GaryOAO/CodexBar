@@ -539,21 +539,21 @@ extension UsageStore {
     }
 
     private func openAIWebManagedTargetStoreIsUnreadable() -> Bool {
-        guard case .managedAccount = self.settings.codexActiveSource else {
+        guard case .managedAccount = self.settings.codexResolvedActiveSource else {
             return false
         }
-        return self.settings.hasUnreadableManagedCodexAccountStore
+        return self.settings.codexSettingsSnapshot(tokenOverride: nil).managedAccountStoreUnreadable
     }
 
     private func openAIWebManagedTargetIsMissing() -> Bool {
-        guard case .managedAccount = self.settings.codexActiveSource else {
+        guard case .managedAccount = self.settings.codexResolvedActiveSource else {
             return false
         }
         return self.selectedManagedCodexAccountForOpenAIWeb() == nil
     }
 
     private func selectedManagedCodexAccountForOpenAIWeb() -> ManagedCodexAccount? {
-        guard case let .managedAccount(id) = self.settings.codexActiveSource else {
+        guard case let .managedAccount(id) = self.settings.codexResolvedActiveSource else {
             return nil
         }
 
@@ -562,7 +562,7 @@ extension UsageStore {
     }
 
     func codexAccountEmailForOpenAIDashboard() -> String? {
-        switch self.settings.codexActiveSource {
+        switch self.settings.codexResolvedActiveSource {
         case .liveSystem:
             let liveSystem = self.settings.codexAccountReconciliationSnapshot.liveSystemAccount?.email
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -593,7 +593,7 @@ extension UsageStore {
     }
 
     func codexCookieCacheScopeForOpenAIWeb() -> CookieHeaderCache.Scope? {
-        switch self.settings.codexActiveSource {
+        switch self.settings.codexResolvedActiveSource {
         case .liveSystem:
             nil
         case let .managedAccount(id):
