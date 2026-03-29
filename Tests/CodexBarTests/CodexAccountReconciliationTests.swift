@@ -137,8 +137,12 @@ struct CodexAccountReconciliationTests {
             zaiTokenStore: NoopZaiTokenStore(),
             syntheticTokenStore: NoopSyntheticTokenStore())
         settings._test_activeManagedCodexRemoteHomePath = "/tmp/managed-route-home"
+        settings._test_liveSystemCodexAccount = nil
+        settings._test_codexReconciliationEnvironment = nil
         defer {
             settings._test_activeManagedCodexRemoteHomePath = nil
+            settings._test_liveSystemCodexAccount = nil
+            settings._test_codexReconciliationEnvironment = nil
         }
 
         let snapshot = settings.codexAccountReconciliationSnapshot
@@ -299,6 +303,81 @@ struct CodexAccountReconciliationTests {
         #expect(projection.visibleAccounts.count == 1)
         #expect(projection.activeVisibleAccountID == "user@example.com")
         #expect(projection.liveVisibleAccountID == "user@example.com")
+    }
+
+    @Test
+    func `matching live system account resolves merged row selection to live system`() {
+        let stored = ManagedCodexAccount(
+            id: UUID(),
+            email: "user@example.com",
+            managedHomePath: "/tmp/managed-a",
+            createdAt: 1,
+            updatedAt: 2,
+            lastAuthenticatedAt: 3)
+        let live = ObservedSystemCodexAccount(
+            email: "USER@example.com",
+            codexHomePath: "/Users/test/.codex",
+            observedAt: Date())
+        let snapshot = CodexAccountReconciliationSnapshot(
+            storedAccounts: [stored],
+            activeStoredAccount: stored,
+            liveSystemAccount: live,
+            matchingStoredAccountForLiveSystemAccount: stored,
+            activeSource: .managedAccount(id: stored.id),
+            hasUnreadableAddedAccountStore: false)
+
+        let resolution = CodexActiveSourceResolver.resolve(from: snapshot)
+        let projection = CodexVisibleAccountProjection.make(from: snapshot)
+
+        #expect(resolution.persistedSource == .managedAccount(id: stored.id))
+        #expect(resolution.resolvedSource == .liveSystem)
+        #expect(resolution.requiresPersistenceCorrection)
+        #expect(projection.activeVisibleAccountID == "user@example.com")
+        #expect(projection.source(forVisibleAccountID: "user@example.com") == .liveSystem)
+    }
+
+    @Test
+    func `missing managed source resolves to live system when live account exists`() {
+        let live = ObservedSystemCodexAccount(
+            email: "live@example.com",
+            codexHomePath: "/Users/test/.codex",
+            observedAt: Date())
+        let missingID = UUID()
+        let snapshot = CodexAccountReconciliationSnapshot(
+            storedAccounts: [],
+            activeStoredAccount: nil,
+            liveSystemAccount: live,
+            matchingStoredAccountForLiveSystemAccount: nil,
+            activeSource: .managedAccount(id: missingID),
+            hasUnreadableAddedAccountStore: false)
+
+        let resolution = CodexActiveSourceResolver.resolve(from: snapshot)
+
+        #expect(resolution.persistedSource == .managedAccount(id: missingID))
+        #expect(resolution.resolvedSource == .liveSystem)
+        #expect(resolution.requiresPersistenceCorrection)
+    }
+
+    @Test
+    func `unreadable managed source resolves to live system when live account exists`() {
+        let live = ObservedSystemCodexAccount(
+            email: "live@example.com",
+            codexHomePath: "/Users/test/.codex",
+            observedAt: Date())
+        let unreadableID = UUID()
+        let snapshot = CodexAccountReconciliationSnapshot(
+            storedAccounts: [],
+            activeStoredAccount: nil,
+            liveSystemAccount: live,
+            matchingStoredAccountForLiveSystemAccount: nil,
+            activeSource: .managedAccount(id: unreadableID),
+            hasUnreadableAddedAccountStore: true)
+
+        let resolution = CodexActiveSourceResolver.resolve(from: snapshot)
+
+        #expect(resolution.persistedSource == .managedAccount(id: unreadableID))
+        #expect(resolution.resolvedSource == .liveSystem)
+        #expect(resolution.requiresPersistenceCorrection)
     }
 
     @Test
@@ -468,6 +547,79 @@ struct CodexAccountReconciliationTests {
         #expect(snapshot.activeSource == .liveSystem)
         #expect(projection.activeVisibleAccountID == "system@example.com")
         #expect(projection.liveVisibleAccountID == "system@example.com")
+    }
+
+    @Test
+    @MainActor
+    func `selecting merged visible account persists live system source`() throws {
+        let suite = "CodexAccountReconciliationTests-select-merged-visible-account"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: testConfigStore(suiteName: suite),
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        let managed = ManagedCodexAccount(
+            id: UUID(),
+            email: "same@example.com",
+            managedHomePath: "/tmp/managed-home",
+            createdAt: 1,
+            updatedAt: 2,
+            lastAuthenticatedAt: 3)
+        let live = ObservedSystemCodexAccount(
+            email: "SAME@example.com",
+            codexHomePath: "/Users/test/.codex",
+            observedAt: Date())
+        settings._test_activeManagedCodexAccount = managed
+        settings._test_liveSystemCodexAccount = live
+        settings.codexActiveSource = .managedAccount(id: managed.id)
+        defer {
+            settings._test_activeManagedCodexAccount = nil
+            settings._test_liveSystemCodexAccount = nil
+        }
+
+        let didSelect = settings.selectCodexVisibleAccount(id: "same@example.com")
+
+        #expect(didSelect)
+        #expect(settings.codexActiveSource == .liveSystem)
+        #expect(settings.codexResolvedActiveSource == .liveSystem)
+    }
+
+    @Test
+    @MainActor
+    func `selecting authenticated managed account prefers live system when visible row is merged`() throws {
+        let suite = "CodexAccountReconciliationTests-select-authenticated-managed-merged"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: testConfigStore(suiteName: suite),
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        let managed = ManagedCodexAccount(
+            id: UUID(),
+            email: "same@example.com",
+            managedHomePath: "/tmp/managed-home",
+            createdAt: 1,
+            updatedAt: 2,
+            lastAuthenticatedAt: 3)
+        let live = ObservedSystemCodexAccount(
+            email: "SAME@example.com",
+            codexHomePath: "/Users/test/.codex",
+            observedAt: Date())
+        settings._test_activeManagedCodexAccount = managed
+        settings._test_liveSystemCodexAccount = live
+        settings.codexActiveSource = .managedAccount(id: UUID())
+        defer {
+            settings._test_activeManagedCodexAccount = nil
+            settings._test_liveSystemCodexAccount = nil
+        }
+
+        settings.selectAuthenticatedManagedCodexAccount(managed)
+
+        #expect(settings.codexActiveSource == .liveSystem)
+        #expect(settings.codexResolvedActiveSource == .liveSystem)
     }
 }
 
