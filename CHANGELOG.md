@@ -1,29 +1,44 @@
 # Changelog
 
-## Unreleased
+## 0.20.0-beta.1 — 2026-04-01
+
+### Highlights
+- Add basic multi-account support to Codex. Thanks @monterrr and @Rag30 for the initial effort and ideas!
+- Add Perplexity provider with recurring, bonus, and purchased-credit tracking; plan detection (Pro/Max); and browser-cookie auto-import with manual-cookie fallback (#449). Thanks @BeelixGit!
+
+### Providers & Usage
+- Add the foundation for multi-account support to Codex and basic UX for adding and switching accounts. @ratulsarna
+- Codex: normalize weekly-only rate limits across OAuth and CLI/RPC so free-plan accounts render as Weekly instead of a fake Session, preserve unknown single-window payloads in the primary lane, hide the empty Session lane in widgets, and accept weekly-only Codex CLI `/status`/RPC data without failing. @ratulsarna
+- Perplexity: add provider support with credit tracking for recurring (monthly), bonus (promotional), and purchased on-demand credits; plan detection (Pro/Max); and browser-cookie auto-import with manual-cookie fallback (#449). Thanks @BeelixGit!
+
+### Menu & Settings
+- Fix alignment of menu chart hover coordinates on macOS. Thanks @cuidong233!
+
+## 0.19.0 — 2026-03-23
 ### Highlights
 - Add Alibaba Coding Plan provider with region-aware quota fetching, widget integration, and browser-cookie import defaults (#574).
 - Align Cursor usage with the dashboard's Total/Auto/API lanes. (#587). Thanks @Rag30!
-- Add reset time display for Codex code review limits (#581). Thanks @Q1CHENL!
-- Add GPT-5.4 mini and nano pricing (#561). Thanks @iam-brain!
-- Add per-model token counts to cost history (#546). Thanks @iam-brain!
 - Add subscription utilization history chart to the menu with DST-safe data point identification (#589). Thanks @maxceem!
-- Fix Antigravity model selection to use stable model-family matching for Claude, Gemini Pro, and Gemini Flash, and preserve fallback lane visibility in the menu bar and icon (#590). Thanks @skainguyen1412!
 - Refactor the Claude provider end to end into clearer, better-tested components while preserving behavior (#494). @ratulsarna
+- Add reset time display for Codex code review limits (#581). Thanks @Q1CHENL!
+- Add per-model token counts to cost history (#546). Thanks @iam-brain!
+- Fix Antigravity model selection to use stable model-family matching for Claude, Gemini Pro, and Gemini Flash, and preserve fallback lane visibility in the menu bar and icon (#590). Thanks @skainguyen1412!
+- Add GPT-5.4 mini and nano pricing (#561). Thanks @iam-brain!
 
 ### Providers & Usage
 - Alibaba: add Coding Plan provider support with region-aware web/API quota fetching, widget integration, and browser-cookie import defaults (#574).
-- Antigravity: replace label-order guessing with stable model-family selection for Claude, Gemini Pro, and Gemini Flash; fix mapping for Claude thinking models and placeholder model IDs; preserve fallback lane visibility in the menu bar and icon when only fallback lanes exist (#590). Thanks @skainguyen1412!
 - Cursor: trust dashboard percent fields for Total/Auto/API usage, preserve on-demand remaining fallback views, and keep scanning imported browser-cookie candidates until a working Cursor session is found (#587, supersedes #579). Thanks @Rag30!
 - Claude: refactor the provider end to end into clearer components, with baseline docs and expanded tests to lock down behavior (#494).
 - Codex: show reset times for code review limits, including Core review reset parsing support (#581). Thanks @Q1CHENL!
-- Codex: add GPT-5.4 mini and nano pricing (#561). Thanks @iam-brain!
 - Cost history: add per-model token counts so token usage is broken out by model (#546). Thanks @iam-brain!
+- Antigravity: replace label-order guessing with stable model-family selection for Claude, Gemini Pro, and Gemini Flash; fix mapping for Claude thinking models and placeholder model IDs; preserve fallback lane visibility in the menu bar and icon when only fallback lanes exist (#590). Thanks @skainguyen1412!
+- Kimi: tolerate API responses without `resetTime` so usage decoding no longer fails on sparse payloads.
+- Codex: add GPT-5.4 mini and nano pricing (#561). Thanks @iam-brain!
 
 ### Menu & Settings
+- Menu: add subscription utilization history chart with DST-safe chart point identifiers and per-provider plan utilization tracking (#589). Thanks @maxceem!
 - Menu bar: in Both display mode, fall back to percent when pace data is unavailable so text stays visible for providers without pace metrics (#527). Thanks @Astro-Han!
 - Settings: persist the resolved refresh cadence default to `UserDefaults` on first launch and repair invalid stored values so the setting stays normalized across relaunches (#519). Thanks @Astro-Han!
-- Menu: add subscription utilization history chart with DST-safe chart point identifiers and per-provider plan utilization tracking (#589). Thanks @maxceem!
 - Menu: wrap long status blurbs and preserve wrapped titles for multiline entries (#543). Thanks @zkforge!
 
 ## 0.18.0 — 2026-03-15

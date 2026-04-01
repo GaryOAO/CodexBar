@@ -18,7 +18,8 @@ public struct ProviderSettingsSnapshot: Sendable {
         augment: AugmentProviderSettings? = nil,
         amp: AmpProviderSettings? = nil,
         ollama: OllamaProviderSettings? = nil,
-        jetbrains: JetBrainsProviderSettings? = nil) -> ProviderSettingsSnapshot
+        jetbrains: JetBrainsProviderSettings? = nil,
+        perplexity: PerplexityProviderSettings? = nil) -> ProviderSettingsSnapshot
     {
         ProviderSettingsSnapshot(
             debugMenuEnabled: debugMenuEnabled,
@@ -37,22 +38,29 @@ public struct ProviderSettingsSnapshot: Sendable {
             augment: augment,
             amp: amp,
             ollama: ollama,
-            jetbrains: jetbrains)
+            jetbrains: jetbrains,
+            perplexity: perplexity)
     }
 
     public struct CodexProviderSettings: Sendable {
         public let usageDataSource: CodexUsageDataSource
         public let cookieSource: ProviderCookieSource
         public let manualCookieHeader: String?
+        public let managedAccountStoreUnreadable: Bool
+        public let managedAccountTargetUnavailable: Bool
 
         public init(
             usageDataSource: CodexUsageDataSource,
             cookieSource: ProviderCookieSource,
-            manualCookieHeader: String?)
+            manualCookieHeader: String?,
+            managedAccountStoreUnreadable: Bool = false,
+            managedAccountTargetUnavailable: Bool = false)
         {
             self.usageDataSource = usageDataSource
             self.cookieSource = cookieSource
             self.manualCookieHeader = manualCookieHeader
+            self.managedAccountStoreUnreadable = managedAccountStoreUnreadable
+            self.managedAccountTargetUnavailable = managedAccountTargetUnavailable
         }
     }
 
@@ -209,6 +217,16 @@ public struct ProviderSettingsSnapshot: Sendable {
         }
     }
 
+    public struct PerplexityProviderSettings: Sendable {
+        public let cookieSource: ProviderCookieSource
+        public let manualCookieHeader: String?
+
+        public init(cookieSource: ProviderCookieSource, manualCookieHeader: String?) {
+            self.cookieSource = cookieSource
+            self.manualCookieHeader = manualCookieHeader
+        }
+    }
+
     public let debugMenuEnabled: Bool
     public let debugKeepCLISessionsAlive: Bool
     public let codex: CodexProviderSettings?
@@ -226,6 +244,7 @@ public struct ProviderSettingsSnapshot: Sendable {
     public let amp: AmpProviderSettings?
     public let ollama: OllamaProviderSettings?
     public let jetbrains: JetBrainsProviderSettings?
+    public let perplexity: PerplexityProviderSettings?
 
     public var jetbrainsIDEBasePath: String? {
         self.jetbrains?.ideBasePath
@@ -248,7 +267,8 @@ public struct ProviderSettingsSnapshot: Sendable {
         augment: AugmentProviderSettings?,
         amp: AmpProviderSettings?,
         ollama: OllamaProviderSettings?,
-        jetbrains: JetBrainsProviderSettings? = nil)
+        jetbrains: JetBrainsProviderSettings? = nil,
+        perplexity: PerplexityProviderSettings? = nil)
     {
         self.debugMenuEnabled = debugMenuEnabled
         self.debugKeepCLISessionsAlive = debugKeepCLISessionsAlive
@@ -267,6 +287,7 @@ public struct ProviderSettingsSnapshot: Sendable {
         self.amp = amp
         self.ollama = ollama
         self.jetbrains = jetbrains
+        self.perplexity = perplexity
     }
 }
 
@@ -286,6 +307,7 @@ public enum ProviderSettingsSnapshotContribution: Sendable {
     case amp(ProviderSettingsSnapshot.AmpProviderSettings)
     case ollama(ProviderSettingsSnapshot.OllamaProviderSettings)
     case jetbrains(ProviderSettingsSnapshot.JetBrainsProviderSettings)
+    case perplexity(ProviderSettingsSnapshot.PerplexityProviderSettings)
 }
 
 public struct ProviderSettingsSnapshotBuilder: Sendable {
@@ -306,6 +328,7 @@ public struct ProviderSettingsSnapshotBuilder: Sendable {
     public var amp: ProviderSettingsSnapshot.AmpProviderSettings?
     public var ollama: ProviderSettingsSnapshot.OllamaProviderSettings?
     public var jetbrains: ProviderSettingsSnapshot.JetBrainsProviderSettings?
+    public var perplexity: ProviderSettingsSnapshot.PerplexityProviderSettings?
 
     public init(debugMenuEnabled: Bool = false, debugKeepCLISessionsAlive: Bool = false) {
         self.debugMenuEnabled = debugMenuEnabled
@@ -329,6 +352,7 @@ public struct ProviderSettingsSnapshotBuilder: Sendable {
         case let .amp(value): self.amp = value
         case let .ollama(value): self.ollama = value
         case let .jetbrains(value): self.jetbrains = value
+        case let .perplexity(value): self.perplexity = value
         }
     }
 
@@ -350,6 +374,7 @@ public struct ProviderSettingsSnapshotBuilder: Sendable {
             augment: self.augment,
             amp: self.amp,
             ollama: self.ollama,
-            jetbrains: self.jetbrains)
+            jetbrains: self.jetbrains,
+            perplexity: self.perplexity)
     }
 }

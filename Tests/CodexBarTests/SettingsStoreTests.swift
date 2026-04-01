@@ -784,6 +784,35 @@ struct SettingsStoreTests {
     }
 
     @Test
+    func `menu observation token updates on codex active source change`() async throws {
+        let suite = "SettingsStoreTests-observation-codex-active-source"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+
+        let store = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+
+        var didChange = false
+
+        withObservationTracking {
+            _ = store.menuObservationToken
+        } onChange: {
+            Task { @MainActor in
+                didChange = true
+            }
+        }
+
+        store.codexActiveSource = .liveSystem
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(didChange == true)
+    }
+
+    @Test
     func `provider order defaults to all cases`() throws {
         let suite = "SettingsStoreTests-providerOrder-default"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -843,6 +872,7 @@ struct SettingsStoreTests {
             .synthetic,
             .warp,
             .openrouter,
+            .perplexity,
         ])
 
         // Move one provider; ensure it's persisted across instances.
@@ -860,7 +890,7 @@ struct SettingsStoreTests {
     }
 
     @Test
-    func settingAlibabaAPIKeyEnablesProvider() throws {
+    func `setting alibaba API key enables provider`() throws {
         let suite = "SettingsStoreTests-alibaba-enable-on-token"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
@@ -881,7 +911,7 @@ struct SettingsStoreTests {
     }
 
     @Test
-    func alibabaProviderAutoEnablesOnStartupWhenTokenExists() throws {
+    func `alibaba provider auto enables on startup when token exists`() throws {
         let suite = "SettingsStoreTests-alibaba-auto-enable-startup"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)

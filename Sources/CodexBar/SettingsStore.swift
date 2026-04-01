@@ -84,6 +84,13 @@ final class SettingsStore {
     var providerOrder: [UsageProvider] = []
     var providerEnablement: [UsageProvider: Bool] = [:]
 
+    static func shouldBridgeSharedDefaults(for userDefaults: UserDefaults) -> Bool {
+        if !self.isRunningTests { return true }
+        if userDefaults === UserDefaults.standard { return true }
+        if let shared = sharedDefaults, userDefaults === shared { return true }
+        return false
+    }
+
     init(
         userDefaults: UserDefaults = .standard,
         configStore: CodexBarConfigStore = CodexBarConfigStore(),
@@ -158,7 +165,9 @@ final class SettingsStore {
         } else {
             self.openAIWebAccessEnabled = Self.inferredInitialOpenAIWebAccessEnabled(config: config)
         }
-        Self.sharedDefaults?.set(self.debugDisableKeychainAccess, forKey: "debugDisableKeychainAccess")
+        if Self.shouldBridgeSharedDefaults(for: userDefaults) {
+            Self.sharedDefaults?.set(self.debugDisableKeychainAccess, forKey: "debugDisableKeychainAccess")
+        }
         KeychainAccessGate.isDisabled = self.debugDisableKeychainAccess
     }
 }
@@ -183,7 +192,9 @@ extension SettingsStore {
             if let stored = userDefaults.object(forKey: "debugDisableKeychainAccess") as? Bool {
                 return stored
             }
-            if let shared = Self.sharedDefaults?.object(forKey: "debugDisableKeychainAccess") as? Bool {
+            if Self.shouldBridgeSharedDefaults(for: userDefaults),
+               let shared = Self.sharedDefaults?.object(forKey: "debugDisableKeychainAccess") as? Bool
+            {
                 userDefaults.set(shared, forKey: "debugDisableKeychainAccess")
                 return shared
             }

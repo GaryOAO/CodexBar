@@ -6,9 +6,9 @@ import WebKit
 
 /// Tests for OpenAIDashboardWebViewCache to verify WebView reuse behavior.
 ///
-/// Background: The cache should keep WebViews alive just long enough for immediate retries, but released
-/// entries should blank the current page so a hidden ChatGPT tab cannot keep burning energy. See GitHub
-/// issues #269, #251, #139.
+/// Background: The cache should keep WebViews alive after use to avoid re-downloading
+/// the ChatGPT SPA bundle on every refresh. Previously, WebViews were destroyed after
+/// each fetch, causing 15+ GB of network traffic over time. See GitHub issues #269, #251.
 @MainActor
 @Suite(.serialized)
 struct OpenAIDashboardWebViewCacheTests {
@@ -67,25 +67,6 @@ struct OpenAIDashboardWebViewCacheTests {
         cache.clearAllForTesting()
     }
 
-    @Test("Released cached WebView should blank the active page")
-    func releasedWebViewNavigatesToBlankPage() async throws {
-        let cache = OpenAIDashboardWebViewCache()
-        let store = WKWebsiteDataStore.nonPersistent()
-        let url = try #require(URL(string: "data:text/html,<html><body>codexbar</body></html>"))
-
-        let lease = try await cache.acquire(
-            websiteDataStore: store,
-            usageURL: url,
-            logger: nil)
-        let webView = lease.webView
-        lease.release()
-
-        try? await Task.sleep(for: .milliseconds(150))
-        #expect(webView.url?.absoluteString == "about:blank", "Released WebView should not stay on the source page")
-
-        cache.clearAllForTesting()
-    }
-
     @Test
     func `Different data stores should have separate cached WebViews`() async throws {
         let cache = OpenAIDashboardWebViewCache()
@@ -132,7 +113,7 @@ struct OpenAIDashboardWebViewCacheTests {
 
         #expect(cache.hasCachedEntry(for: store), "Should be cached immediately after release")
 
-        // Simulate time passing beyond idle timeout.
+        // Simulate time passing beyond the configured idle timeout.
         let futureTime = Date().addingTimeInterval(cache.idleTimeoutForTesting + 5)
         cache.pruneForTesting(now: futureTime)
 
@@ -153,8 +134,8 @@ struct OpenAIDashboardWebViewCacheTests {
             logger: nil)
         lease.release()
 
-        // Simulate time passing within idle timeout.
-        let nearFutureTime = Date().addingTimeInterval(max(cache.idleTimeoutForTesting / 2, 1))
+        // Simulate time passing comfortably within the configured idle timeout.
+        let nearFutureTime = Date().addingTimeInterval(max(1, cache.idleTimeoutForTesting / 2))
         cache.pruneForTesting(now: nearFutureTime)
 
         #expect(cache.hasCachedEntry(for: store), "Should still be cached within idle timeout")
@@ -184,6 +165,27 @@ struct OpenAIDashboardWebViewCacheTests {
         #expect(cache.hasCachedEntry(for: store2), "Second store should still be cached")
         #expect(cache.entryCount == 1, "Should have one cached entry remaining")
 
+        cache.clearAllForTesting()
+    }
+
+    @Test
+    func `Evicted WebView should not be reused on next acquire`() async throws {
+        let cache = OpenAIDashboardWebViewCache()
+        let store = WKWebsiteDataStore.nonPersistent()
+        let url = try #require(URL(string: "about:blank"))
+
+        let lease1 = try await cache.acquire(websiteDataStore: store, usageURL: url, logger: nil)
+        let webView1 = lease1.webView
+        lease1.release()
+
+        cache.evict(websiteDataStore: store)
+
+        let lease2 = try await cache.acquire(websiteDataStore: store, usageURL: url, logger: nil)
+        let webView2 = lease2.webView
+
+        #expect(webView1 !== webView2, "Acquire after eviction should create a fresh WebView")
+
+        lease2.release()
         cache.clearAllForTesting()
     }
 
