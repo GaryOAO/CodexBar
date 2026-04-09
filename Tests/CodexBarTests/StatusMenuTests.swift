@@ -523,7 +523,10 @@ struct StatusMenuTests {
         #expect(titles.contains("About CodexBar"))
         #expect(titles.contains("Quit"))
     }
+}
 
+@MainActor
+extension StatusMenuTests {
     @Test
     func `status blurb uses wrapped view-backed menu item`() {
         self.disableMenuCardsForTesting()

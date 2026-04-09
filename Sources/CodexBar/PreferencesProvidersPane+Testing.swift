@@ -66,15 +66,6 @@ extension ProvidersPane {
         self.menuCardModel(for: provider)
     }
 
-    func _test_refreshAction(for provider: UsageProvider) -> String {
-        switch self.refreshAction(for: provider) {
-        case .fullStore:
-            "fullStore"
-        case .providerOnly:
-            "providerOnly"
-        }
-    }
-
     func _test_providerErrorDisplay(for provider: UsageProvider) -> ProviderErrorDisplay? {
         self.providerErrorDisplay(provider)
     }

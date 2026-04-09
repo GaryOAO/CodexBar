@@ -148,36 +148,13 @@ struct ProvidersPane: View {
         self.selectedProvider = self.providers.first
     }
 
-    enum RefreshAction {
-        case fullStore
-        case providerOnly
-    }
-
-    func refreshAction(for provider: UsageProvider) -> RefreshAction {
-        let metadata = self.store.metadata(for: provider)
-        let isEnabled = self.settings.isProviderEnabled(provider: provider, metadata: metadata)
-        if provider == .codex,
-           isEnabled,
-           self.settings.openAIWebAccessEnabled
-        {
-            return .fullStore
-        }
-        return .providerOnly
-    }
-
     private func triggerRefresh(for provider: UsageProvider) {
-        let action = self.refreshAction(for: provider)
         Task { @MainActor in
             await ProviderInteractionContext.$current.withValue(.userInitiated) {
-                switch action {
-                case .fullStore:
-                    await self.store.refresh(forceTokenUsage: true)
-                case .providerOnly:
-                    if provider == .codex {
-                        await self.store.refreshCodexAccountScopedState(allowDisabled: true)
-                    } else {
-                        await self.store.refreshProvider(provider, allowDisabled: true)
-                    }
+                if provider == .codex {
+                    await self.store.refreshCodexAccountScopedState(allowDisabled: true)
+                } else {
+                    await self.store.refreshProvider(provider, allowDisabled: true)
                 }
             }
         }

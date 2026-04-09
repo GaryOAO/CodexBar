@@ -125,31 +125,6 @@ struct ProvidersPaneCoverageTests {
     }
 
     @Test
-    func codexRefreshUsesExplicitPathWhenOpenAIWebExtrasEnabled() {
-        let settings = Self.makeSettingsStore(suite: "ProvidersPaneCoverageTests-codex-refresh-full")
-        settings.openAIWebAccessEnabled = true
-        let store = Self.makeUsageStore(settings: settings)
-        let pane = ProvidersPane(settings: settings, store: store)
-
-        #expect(pane._test_refreshAction(for: .codex) == "fullStore")
-        #expect(pane._test_refreshAction(for: .claude) == "providerOnly")
-    }
-
-    @Test
-    func disabledCodexRefreshStaysProviderScoped() throws {
-        let settings = Self.makeSettingsStore(suite: "ProvidersPaneCoverageTests-codex-refresh-disabled")
-        settings.openAIWebAccessEnabled = true
-        let store = Self.makeUsageStore(settings: settings)
-        let pane = ProvidersPane(settings: settings, store: store)
-        let metadata = ProviderRegistry.shared.metadata
-
-        let codexMetadata = try #require(metadata[.codex])
-        settings.setProviderEnabled(provider: .codex, metadata: codexMetadata, enabled: false)
-
-        #expect(pane._test_refreshAction(for: .codex) == "providerOnly")
-    }
-
-    @Test
     func `opencode manual cookie source hides cached browser trailing text`() {
         let settings = Self.makeSettingsStore(suite: "ProvidersPaneCoverageTests-opencode-manual")
         let store = Self.makeUsageStore(settings: settings)
