@@ -31,7 +31,17 @@ public enum ClaudeOAuthFetchError: LocalizedError, Sendable {
 }
 
 enum ClaudeOAuthUsageFetcher {
-    private static let baseURL = "https://api.anthropic.com"
+    // Allow overriding the upstream so the usage fetch can be routed through a
+    // private OAuth proxy (e.g. a Cloudflare Worker) that already holds the
+    // Claude OAuth refresh token. When set, the fetcher sends the configured
+    // access token verbatim and the proxy swaps in the real bearer.
+    static let baseURLEnvKey = "CODEXBAR_CLAUDE_USAGE_BASE_URL"
+    static var baseURL: String {
+        let raw = ProcessInfo.processInfo.environment[Self.baseURLEnvKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if raw.isEmpty { return "https://api.anthropic.com" }
+        return raw.hasSuffix("/") ? String(raw.dropLast()) : raw
+    }
     private static let usagePath = "/api/oauth/usage"
     private static let betaHeader = "oauth-2025-04-20"
     private static let fallbackClaudeCodeVersion = "2.1.0"
