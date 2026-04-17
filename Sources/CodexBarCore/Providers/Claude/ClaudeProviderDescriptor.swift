@@ -218,7 +218,10 @@ struct ClaudeOAuthFetchStrategy: ProviderFetchStrategy {
             forKey: ClaudeOAuthCredentialsStore.defaultsTokenKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ?? true)
-        let hasEnvironmentOAuthToken = !(envTokenEmpty && defaultsTokenEmpty)
+        let profileTokenEmpty = (ClaudeProxyProfileStore.activeProfile()?
+            .trimmedToken
+            .isEmpty ?? true)
+        let hasEnvironmentOAuthToken = !(envTokenEmpty && defaultsTokenEmpty && profileTokenEmpty)
         let claudeCLIAvailable = strategy.isClaudeCLIAvailable(environment: environment)
 
         if hasEnvironmentOAuthToken {

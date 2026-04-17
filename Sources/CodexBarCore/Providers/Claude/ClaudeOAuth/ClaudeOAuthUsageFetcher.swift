@@ -39,17 +39,27 @@ enum ClaudeOAuthUsageFetcher {
     // Resolution order: environment variable > UserDefaults > default. Env keeps
     // tests deterministic; UserDefaults lets the GUI settings pane persist it.
     static let baseURLEnvKey = "CODEXBAR_CLAUDE_USAGE_BASE_URL"
-    static let baseURLDefaultsKey = "claudeUsageBaseURLOverride"
+    static let baseURLDefaultsKey = ClaudeProxyProfileStore.legacyBaseURLDefaultsKey
     static var baseURL: String {
-        let candidates: [String?] = [
-            ProcessInfo.processInfo.environment[Self.baseURLEnvKey],
-            UserDefaults.standard.string(forKey: Self.baseURLDefaultsKey),
-        ]
-        for candidate in candidates {
-            let raw = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if raw.isEmpty { continue }
-            return raw.hasSuffix("/") ? String(raw.dropLast()) : raw
+        let envRaw = ProcessInfo.processInfo.environment[Self.baseURLEnvKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !envRaw.isEmpty {
+            return envRaw.hasSuffix("/") ? String(envRaw.dropLast()) : envRaw
         }
+
+        if let profile = ClaudeProxyProfileStore.activeProfile() {
+            let trimmed = profile.trimmedBaseURL
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        let legacy = UserDefaults.standard.string(forKey: Self.baseURLDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !legacy.isEmpty {
+            return legacy.hasSuffix("/") ? String(legacy.dropLast()) : legacy
+        }
+
         return "https://api.anthropic.com"
     }
     private static let usagePath = "/api/oauth/usage"

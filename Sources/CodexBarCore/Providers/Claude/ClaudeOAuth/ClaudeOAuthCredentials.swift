@@ -1648,9 +1648,14 @@ public enum ClaudeOAuthCredentialsStore {
     {
         let envToken = environment[self.environmentTokenKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let profileToken = ClaudeProxyProfileStore.activeProfile()?.trimmedToken ?? ""
         let defaultsToken = UserDefaults.standard.string(forKey: self.defaultsTokenKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let token = !envToken.isEmpty ? envToken : defaultsToken
+        let token: String = {
+            if !envToken.isEmpty { return envToken }
+            if !profileToken.isEmpty { return profileToken }
+            return defaultsToken
+        }()
         guard !token.isEmpty else { return nil }
 
         let scopes: [String] = {

@@ -1,3 +1,4 @@
+import CodexBarCore
 import KeyboardShortcuts
 import SwiftUI
 
@@ -7,16 +8,23 @@ struct AdvancedPane: View {
     @State private var isInstallingCLI = false
     @State private var cliStatus: String?
 
-    @AppStorage("claudeUsageBaseURLOverride") private var claudeProxyBaseURL: String = ""
-    @AppStorage("claudeOAuthTokenOverride") private var claudeProxyToken: String = ""
+    @State private var claudeProxyProfiles: [ClaudeProxyProfile] = []
+    @State private var claudeProxyActiveProfileID: UUID?
+
+    private var activeClaudeProxyProfile: ClaudeProxyProfile? {
+        guard let id = self.claudeProxyActiveProfileID else { return self.claudeProxyProfiles.first }
+        return self.claudeProxyProfiles.first(where: { $0.id == id }) ?? self.claudeProxyProfiles.first
+    }
 
     private var claudeProxyStatusText: String {
-        let trimmed = self.claudeProxyBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
+        guard let profile = self.activeClaudeProxyProfile else {
             return "Currently sending usage requests to api.anthropic.com."
         }
-        let normalized = trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
-        return "Currently sending usage requests to \(normalized)/api/oauth/usage."
+        let trimmed = profile.trimmedBaseURL
+        if trimmed.isEmpty {
+            return "Active profile \"\(profile.name)\" has no Base URL — falling back to api.anthropic.com."
+        }
+        return "Active profile \"\(profile.name)\" → \(trimmed)/api/oauth/usage."
     }
 
     var body: some View {
@@ -92,31 +100,34 @@ struct AdvancedPane: View {
                 SettingsSection(
                     title: "Claude OAuth Proxy",
                     caption: """
-                    Route Claude usage lookups through a private OAuth proxy (e.g. a Cloudflare \
-                    Worker that already holds the real refresh token). Leave both fields empty \
-                    to talk to api.anthropic.com directly. Environment variables \
-                    CODEXBAR_CLAUDE_USAGE_BASE_URL and CODEXBAR_CLAUDE_OAUTH_TOKEN override \
-                    these fields when set.
+                    Route Claude usage lookups through private OAuth proxies (e.g. Cloudflare \
+                    Workers that already hold the real refresh token). Add one profile per \
+                    account/endpoint and pick the active one below. Empty list falls back to \
+                    api.anthropic.com. Environment variables CODEXBAR_CLAUDE_USAGE_BASE_URL \
+                    and CODEXBAR_CLAUDE_OAUTH_TOKEN override the active profile when set.
                     """) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Base URL")
-                                .font(.caption)
+                        if self.claudeProxyProfiles.isEmpty {
+                            Text("No proxy profiles yet — Claude usage will talk to api.anthropic.com.")
+                                .font(.footnote)
                                 .foregroundStyle(.secondary)
-                            TextField(
-                                "https://cc.example.com",
-                                text: self.$claudeProxyBaseURL)
-                                .textFieldStyle(.roundedBorder)
-                                .autocorrectionDisabled()
+                        } else {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(self.claudeProxyProfileBindings(), id: \.wrappedValue.id) { binding in
+                                    self.claudeProxyProfileRow(binding: binding)
+                                }
+                            }
                         }
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Proxy API Key / OAuth Token")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            SecureField(
-                                "Paste proxy API key or OAuth access token",
-                                text: self.$claudeProxyToken)
-                                .textFieldStyle(.roundedBorder)
+
+                        HStack {
+                            Button("+ Add Profile") {
+                                self.addClaudeProxyProfile()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            Spacer()
                         }
+
                         Text(self.claudeProxyStatusText)
                             .font(.footnote)
                             .foregroundStyle(.tertiary)
@@ -140,6 +151,111 @@ struct AdvancedPane: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
+        .onAppear {
+            self.reloadClaudeProxyProfiles()
+        }
+    }
+}
+
+extension AdvancedPane {
+    private func reloadClaudeProxyProfiles() {
+        self.claudeProxyProfiles = ClaudeProxyProfileStore.loadProfiles()
+        self.claudeProxyActiveProfileID = ClaudeProxyProfileStore.activeProfileID()
+            ?? self.claudeProxyProfiles.first?.id
+    }
+
+    private func persistClaudeProxyProfiles() {
+        ClaudeProxyProfileStore.saveProfiles(self.claudeProxyProfiles)
+        ClaudeProxyProfileStore.setActiveProfileID(self.claudeProxyActiveProfileID)
+    }
+
+    private func addClaudeProxyProfile() {
+        let nextIndex = self.claudeProxyProfiles.count + 1
+        let profile = ClaudeProxyProfile(
+            name: "Profile \(nextIndex)",
+            baseURL: "",
+            token: "")
+        self.claudeProxyProfiles.append(profile)
+        if self.claudeProxyActiveProfileID == nil {
+            self.claudeProxyActiveProfileID = profile.id
+        }
+        self.persistClaudeProxyProfiles()
+    }
+
+    private func deleteClaudeProxyProfile(id: UUID) {
+        self.claudeProxyProfiles.removeAll(where: { $0.id == id })
+        if self.claudeProxyActiveProfileID == id {
+            self.claudeProxyActiveProfileID = self.claudeProxyProfiles.first?.id
+        }
+        self.persistClaudeProxyProfiles()
+    }
+
+    private func setActiveClaudeProxyProfile(id: UUID) {
+        self.claudeProxyActiveProfileID = id
+        self.persistClaudeProxyProfiles()
+    }
+
+    private func claudeProxyProfileBindings() -> [Binding<ClaudeProxyProfile>] {
+        self.claudeProxyProfiles.indices.map { index in
+            Binding<ClaudeProxyProfile>(
+                get: { self.claudeProxyProfiles[index] },
+                set: { newValue in
+                    guard self.claudeProxyProfiles.indices.contains(index) else { return }
+                    self.claudeProxyProfiles[index] = newValue
+                    self.persistClaudeProxyProfiles()
+                })
+        }
+    }
+
+    @ViewBuilder
+    private func claudeProxyProfileRow(binding: Binding<ClaudeProxyProfile>) -> some View {
+        let profile = binding.wrappedValue
+        let isActive = (self.claudeProxyActiveProfileID ?? self.claudeProxyProfiles.first?.id) == profile.id
+
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 8) {
+                Button {
+                    self.setActiveClaudeProxyProfile(id: profile.id)
+                } label: {
+                    Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                        .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(isActive ? "Active profile" : "Set as active")
+
+                TextField("Name", text: binding.name)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 140)
+
+                TextField("https://cc.example.com", text: binding.baseURL)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+
+                Button {
+                    self.deleteClaudeProxyProfile(id: profile.id)
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .help("Delete this profile")
+            }
+
+            HStack(alignment: .center, spacing: 8) {
+                Text("Token")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
+                SecureField("Proxy API key or OAuth access token", text: binding.token)
+                    .textFieldStyle(.roundedBorder)
+            }
+            .padding(.leading, 24)
+        }
+        .padding(8)
+        .background(isActive
+            ? Color.accentColor.opacity(0.08)
+            : Color.secondary.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 
