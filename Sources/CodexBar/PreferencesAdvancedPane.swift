@@ -7,6 +7,18 @@ struct AdvancedPane: View {
     @State private var isInstallingCLI = false
     @State private var cliStatus: String?
 
+    @AppStorage("claudeUsageBaseURLOverride") private var claudeProxyBaseURL: String = ""
+    @AppStorage("claudeOAuthTokenOverride") private var claudeProxyToken: String = ""
+
+    private var claudeProxyStatusText: String {
+        let trimmed = self.claudeProxyBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Currently sending usage requests to api.anthropic.com."
+        }
+        let normalized = trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
+        return "Currently sending usage requests to \(normalized)/api/oauth/usage."
+    }
+
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 16) {
@@ -74,6 +86,41 @@ struct AdvancedPane: View {
                         subtitle: "Obscure email addresses in the menu bar and menu UI.",
                         binding: self.$settings.hidePersonalInfo)
                 }
+
+                Divider()
+
+                SettingsSection(
+                    title: "Claude OAuth Proxy",
+                    caption: """
+                    Route Claude usage lookups through a private OAuth proxy (e.g. a Cloudflare \
+                    Worker that already holds the real refresh token). Leave both fields empty \
+                    to talk to api.anthropic.com directly. Environment variables \
+                    CODEXBAR_CLAUDE_USAGE_BASE_URL and CODEXBAR_CLAUDE_OAUTH_TOKEN override \
+                    these fields when set.
+                    """) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Base URL")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField(
+                                "https://cc.example.com",
+                                text: self.$claudeProxyBaseURL)
+                                .textFieldStyle(.roundedBorder)
+                                .autocorrectionDisabled()
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Proxy API Key / OAuth Token")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            SecureField(
+                                "Paste proxy API key or OAuth access token",
+                                text: self.$claudeProxyToken)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        Text(self.claudeProxyStatusText)
+                            .font(.footnote)
+                            .foregroundStyle(.tertiary)
+                    }
 
                 Divider()
 

@@ -17,6 +17,11 @@ public enum ClaudeOAuthCredentialsStore {
     private static let cacheKey = KeychainCacheStore.Key.oauth(provider: .claude)
     public static let environmentTokenKey = "CODEXBAR_CLAUDE_OAUTH_TOKEN"
     public static let environmentScopesKey = "CODEXBAR_CLAUDE_OAUTH_SCOPES"
+    // When the usage endpoint is routed through a private OAuth proxy, the
+    // "access token" we send is actually a proxy API key. Users may prefer to
+    // paste it into the GUI instead of exporting a launchctl env var, so we
+    // also honour a UserDefaults-backed override.
+    public static let defaultsTokenKey = "claudeOAuthTokenOverride"
 
     // Claude CLI's OAuth client ID - this is a public identifier (not a secret).
     // It's the same client ID used by Claude Code CLI for OAuth PKCE flow.
@@ -1641,13 +1646,12 @@ public enum ClaudeOAuthCredentialsStore {
     private static func loadFromEnvironment(_ environment: [String: String])
         -> ClaudeOAuthCredentials?
     {
-        guard
-            let token = environment[self.environmentTokenKey]?.trimmingCharacters(
-                in: .whitespacesAndNewlines),
-            !token.isEmpty
-        else {
-            return nil
-        }
+        let envToken = environment[self.environmentTokenKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let defaultsToken = UserDefaults.standard.string(forKey: self.defaultsTokenKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let token = !envToken.isEmpty ? envToken : defaultsToken
+        guard !token.isEmpty else { return nil }
 
         let scopes: [String] = {
             guard let raw = environment[self.environmentScopesKey] else { return ["user:profile"] }

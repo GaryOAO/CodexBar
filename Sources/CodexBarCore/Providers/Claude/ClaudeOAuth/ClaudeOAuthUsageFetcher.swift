@@ -35,12 +35,22 @@ enum ClaudeOAuthUsageFetcher {
     // private OAuth proxy (e.g. a Cloudflare Worker) that already holds the
     // Claude OAuth refresh token. When set, the fetcher sends the configured
     // access token verbatim and the proxy swaps in the real bearer.
+    //
+    // Resolution order: environment variable > UserDefaults > default. Env keeps
+    // tests deterministic; UserDefaults lets the GUI settings pane persist it.
     static let baseURLEnvKey = "CODEXBAR_CLAUDE_USAGE_BASE_URL"
+    static let baseURLDefaultsKey = "claudeUsageBaseURLOverride"
     static var baseURL: String {
-        let raw = ProcessInfo.processInfo.environment[Self.baseURLEnvKey]?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if raw.isEmpty { return "https://api.anthropic.com" }
-        return raw.hasSuffix("/") ? String(raw.dropLast()) : raw
+        let candidates: [String?] = [
+            ProcessInfo.processInfo.environment[Self.baseURLEnvKey],
+            UserDefaults.standard.string(forKey: Self.baseURLDefaultsKey),
+        ]
+        for candidate in candidates {
+            let raw = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if raw.isEmpty { continue }
+            return raw.hasSuffix("/") ? String(raw.dropLast()) : raw
+        }
+        return "https://api.anthropic.com"
     }
     private static let usagePath = "/api/oauth/usage"
     private static let betaHeader = "oauth-2025-04-20"
