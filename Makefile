@@ -1,6 +1,12 @@
 SHELL := /bin/bash
 
-.PHONY: build check docs-list format lint release restart start start-debug start-release stop test test-live test-tty
+.PHONY: build check docs-list format install lint release restart start start-debug start-release stop test test-live test-tty
+
+# Fast local install — single-arch incremental build straight into /Applications.
+# Use this for the daily edit→try loop instead of pushing a v* tag (which would
+# burn 20+ min of CI to produce a universal binary). Push a tag only for shipping.
+install:
+	./Scripts/install_local.sh
 
 start:
 	./Scripts/compile_and_run.sh
