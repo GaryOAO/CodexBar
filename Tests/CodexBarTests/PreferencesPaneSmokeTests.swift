@@ -13,6 +13,7 @@ struct PreferencesPaneSmokeTests {
 
         _ = GeneralPane(settings: settings, store: store).body
         _ = DisplayPane(settings: settings, store: store).body
+        _ = PetPane(settings: settings).body
         _ = AdvancedPane(settings: settings).body
         _ = ProvidersPane(settings: settings, store: store).body
         _ = DebugPane(settings: settings, store: store).body
@@ -38,6 +39,7 @@ struct PreferencesPaneSmokeTests {
 
         _ = GeneralPane(settings: settings, store: store).body
         _ = DisplayPane(settings: settings, store: store).body
+        _ = PetPane(settings: settings).body
         _ = AdvancedPane(settings: settings).body
         _ = ProvidersPane(settings: settings, store: store).body
         _ = DebugPane(settings: settings, store: store).body

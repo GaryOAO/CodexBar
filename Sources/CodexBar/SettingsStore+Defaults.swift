@@ -650,14 +650,23 @@ extension SettingsStore {
         set { self.debugLoadingPatternRaw = newValue?.rawValue }
     }
 
+    var petEnabled: Bool {
+        get { self.defaultsState.petEnabled }
+        set {
+            self.defaultsState.petEnabled = newValue
+            self.userDefaults.set(newValue, forKey: "petEnabled")
+        }
+    }
+
     /// How frequently the BLE push timer fires (in seconds). Clamped to a
     /// reasonable range when consumed; persisted as a Double so a slider
     /// can drive it directly without integer rounding artifacts.
     var petPushIntervalSeconds: Double {
         get { self.defaultsState.petPushIntervalSeconds }
         set {
-            self.defaultsState.petPushIntervalSeconds = newValue
-            self.userDefaults.set(newValue, forKey: "petPushIntervalSeconds")
+            let clamped = max(1.0, min(60.0, newValue))
+            self.defaultsState.petPushIntervalSeconds = clamped
+            self.userDefaults.set(clamped, forKey: "petPushIntervalSeconds")
         }
     }
 
@@ -726,7 +735,7 @@ extension SettingsStore {
     /// Display preference for usage values on the pet face.
     /// Stored as a free-form string so older builds round-trip unknown
     /// values; valid options today are "left", "used", "both".
-    var petUsageDisplay: String {
+    private var petUsageDisplayRaw: String {
         get { self.defaultsState.petUsageDisplayRaw }
         set {
             self.defaultsState.petUsageDisplayRaw = newValue
@@ -734,14 +743,24 @@ extension SettingsStore {
         }
     }
 
+    var petUsageDisplay: PetUsageDisplayMode {
+        get { PetUsageDisplayMode(rawValue: self.petUsageDisplayRaw) ?? .remaining }
+        set { self.petUsageDisplayRaw = newValue.rawValue }
+    }
+
     /// Personality preset that flavours the pet's idle behaviour. Valid
     /// options today are "calm", "playful", "focus".
-    var petPersonality: String {
+    private var petPersonalityRaw: String {
         get { self.defaultsState.petPersonalityRaw }
         set {
             self.defaultsState.petPersonalityRaw = newValue
             self.userDefaults.set(newValue, forKey: "petPersonality")
         }
+    }
+
+    var petPersonality: PetPersonality {
+        get { PetPersonality(rawValue: self.petPersonalityRaw) ?? .playful }
+        set { self.petPersonalityRaw = newValue.rawValue }
     }
 }
 

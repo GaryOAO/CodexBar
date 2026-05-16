@@ -451,6 +451,7 @@
 "tab_general" = "通用";
 "tab_providers" = "提供商";
 "tab_display" = "显示";
+"tab_pet" = "桌宠";
 "tab_advanced" = "高级";
 "tab_about" = "关于";
 "tab_debug" = "调试";

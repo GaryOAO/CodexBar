@@ -444,6 +444,7 @@
 "tab_general" = "General";
 "tab_providers" = "Providers";
 "tab_display" = "Display";
+"tab_pet" = "Desktop Pet";
 "tab_advanced" = "Advanced";
 "tab_about" = "About";
 "tab_debug" = "Debug";

@@ -44,6 +44,12 @@ public final class PetBLEClient: NSObject, @unchecked Sendable {
     /// internal queue; readers see the last published value.
     public private(set) var state: State = .off
     public private(set) var firmwareInfo: String?
+    public private(set) var peripheralName: String?
+    public private(set) var lastRSSI: Int?
+    public private(set) var lastStatus: PetStatus?
+    public private(set) var lastStatusSentAt: Date?
+    public private(set) var lastTheme: Theme?
+    public private(set) var lastThemeSentAt: Date?
 
     public var onStateChange: (@Sendable (State) -> Void)?
 
@@ -79,6 +85,8 @@ public final class PetBLEClient: NSObject, @unchecked Sendable {
             self.statusChar = nil
             self.themeChar = nil
             self.firmwareInfo = nil
+            self.peripheralName = nil
+            self.lastRSSI = nil
             if let central = self.central {
                 central.stopScan()
                 if let peripheral = self.peripheral {
@@ -94,6 +102,8 @@ public final class PetBLEClient: NSObject, @unchecked Sendable {
     public func pushStatus(_ status: PetStatus) {
         let data = status.encoded()
         self.queue.async {
+            self.lastStatus = status
+            self.lastStatusSentAt = Date()
             self.writeStatus(data)
         }
     }
@@ -101,6 +111,8 @@ public final class PetBLEClient: NSObject, @unchecked Sendable {
     public func setTheme(_ theme: Theme) {
         let value = theme.rawValue
         self.queue.async {
+            self.lastTheme = theme
+            self.lastThemeSentAt = Date()
             self.writeTheme(value)
         }
     }
@@ -177,6 +189,8 @@ extension PetBLEClient: CBCentralManagerDelegate {
         rssi RSSI: NSNumber)
     {
         let name = (peripheral.name ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? "?"
+        self.peripheralName = name
+        self.lastRSSI = RSSI.intValue
         self.log.info("discovered \(name) rssi=\(RSSI)")
         central.stopScan()
         self.peripheral = peripheral
@@ -200,6 +214,8 @@ extension PetBLEClient: CBCentralManagerDelegate {
         self.statusChar = nil
         self.themeChar = nil
         self.firmwareInfo = nil
+        self.peripheralName = nil
+        self.lastRSSI = nil
         self.startScanIfReady()
     }
 
@@ -210,6 +226,8 @@ extension PetBLEClient: CBCentralManagerDelegate {
     {
         self.log.warning("connect failed: \(error?.localizedDescription ?? "?")")
         self.peripheral = nil
+        self.peripheralName = nil
+        self.lastRSSI = nil
         self.startScanIfReady()
     }
 }

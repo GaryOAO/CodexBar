@@ -43,8 +43,12 @@ final class PetUsageBridge {
         let today = UInt32(clamping: todayRaw)
 
         var flags: UInt8 = 0
-        if pct5h >= 90 { flags |= 0x01 }
-        if pctWk >= 90 { flags |= 0x02 }
+        if pct5h >= 90 { flags |= PetStatus.flagBitFiveHourWarning }
+        if pctWk >= 90 { flags |= PetStatus.flagBitWeeklyWarning }
+        if pct5h >= 100 || pctWk >= 100 { flags |= PetStatus.flagBitRateLimited }
+        if store.isRefreshing || !store.refreshingProviders.isEmpty || store.isTokenRefreshInFlight(for: .claude) {
+            flags |= PetStatus.flagBitAnyFetching
+        }
         flags |= self.preferenceFlags()
 
         return PetStatus(
@@ -53,6 +57,7 @@ final class PetUsageBridge {
             usageWeekPct: pctWk,
             mode: 0,
             flags: flags,
+            presentation: self.presentationByte(),
             reset5hMinutes: reset5h,
             resetWeekMinutes: resetWk,
             todayTokens: today,
@@ -79,6 +84,14 @@ final class PetUsageBridge {
             bits |= PetStatus.flagBitQuietHoursActive
         }
         return bits
+    }
+
+    /// Byte 5 stays inside the existing 18-byte payload. Current firmware
+    /// ignores unknown presentation bits, while newer firmware can decode
+    /// usage-display and personality without a wire-size bump.
+    private func presentationByte() -> UInt8 {
+        guard let settings = self.settings else { return 0 }
+        return settings.petUsageDisplay.wireValue | (settings.petPersonality.wireValue << 4)
     }
 
     /// Quiet-hours window is `[start, end)` in local time. When `end < start`

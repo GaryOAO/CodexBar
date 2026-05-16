@@ -395,19 +395,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 object: nil)
             self.hasInstalledWeeklyLimitResetObserver = true
         }
-        self.startHookReceiver()
+        self.observePetSettingsChanges()
+        self.reconcilePetRuntime()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         self.confettiOverlayController.dismiss()
         TTYCommandRunner.terminateActiveProcessesForAppShutdown()
-        self.petPushTimer?.invalidate()
-        self.petPushTimer = nil
-        self.hookConsumerTask?.cancel()
-        self.hookReceiver?.stop()
+        self.stopPetRuntime()
     }
 
-    private func startHookReceiver() {
+    private func observePetSettingsChanges() {
+        guard let settings = self.settings else { return }
+        withObservationTracking {
+            _ = settings.petEnabled
+            _ = settings.petPushIntervalSeconds
+            _ = settings.petQuipsEnabled
+            _ = settings.petMicroActionsEnabled
+            _ = settings.petMilestoneCelebrationsEnabled
+            _ = settings.petQuietHoursEnabled
+            _ = settings.petQuietHoursStart
+            _ = settings.petQuietHoursEnd
+            _ = settings.petUsageDisplay
+            _ = settings.petPersonality
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.observePetSettingsChanges()
+                self.reconcilePetRuntime()
+            }
+        }
+    }
+
+    private func reconcilePetRuntime() {
+        guard self.settings?.petEnabled == true else {
+            self.stopPetRuntime()
+            return
+        }
+        self.startHookReceiverIfNeeded()
+        self.startPetClientIfNeeded()
+        self.reschedulePetPushTimer()
+        self.pushPetStatusPeriodic()
+    }
+
+    private func startHookReceiverIfNeeded() {
         guard self.hookReceiver == nil else { return }
 
         // Keep the on-disk shim script in sync with our embedded source. The
@@ -433,6 +464,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.hookReceiver = receiver
 
+        // Drain the AsyncStream and forward each event to the pet as a
+        // PetStatus snapshot. The hook supplies the fast-changing mode;
+        // PetUsageBridge overlays the current usage and preference fields.
+        self.hookConsumerTask = Task.detached { [weak self] in
+            for await event in receiver.events {
+                guard let self else { continue }
+                await self.consumeHookEvent(event)
+            }
+        }
+    }
+
+    private func startPetClientIfNeeded() {
+        guard self.petClient == nil else { return }
         // Start the BLE central too. It scans for "ClawdPet" + the pet
         // service UUID; if no pet is present nothing bad happens (logs a
         // warning when Bluetooth itself is off). When the pet shows up,
@@ -441,7 +485,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pet.start()
         self.petClient = pet
         PetSharedAccess.client = pet
+    }
 
+    private func reschedulePetPushTimer() {
+        self.petPushTimer?.invalidate()
+        self.petPushTimer = nil
+        guard self.settings?.petEnabled == true else { return }
+        guard self.petClient != nil, self.petBridge != nil else { return }
         // Periodically refresh the slow fields (5h%, week%, today_tokens,
         // epoch) so the pet's right-side dashboard isn't frozen between
         // hook events. The interval is user-configurable in Preferences;
@@ -451,20 +501,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.petPushTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pushPetStatusPeriodic() }
         }
-        // Push once immediately so the pet doesn't show zeros until the
-        // first timer tick lands 5s later.
-        self.pushPetStatusPeriodic()
+    }
 
-        // Drain the AsyncStream and forward each event to the pet as a
-        // PetStatus snapshot. Provider/usage stay zero for now (M2 will
-        // wire ProviderState into this path); mode and req_counter are
-        // the immediately useful signals to expose.
-        self.hookConsumerTask = Task.detached { [weak self] in
-            for await event in receiver.events {
-                guard let self else { continue }
-                await self.consumeHookEvent(event)
-            }
-        }
+    private func stopPetRuntime() {
+        self.petPushTimer?.invalidate()
+        self.petPushTimer = nil
+        self.hookConsumerTask?.cancel()
+        self.hookConsumerTask = nil
+        self.hookReceiver?.stop()
+        self.hookReceiver = nil
+        self.petClient?.stop()
+        self.petClient = nil
+        PetSharedAccess.client = nil
+        self.petLastMode = PetMode.idle.rawValue
     }
 
     private func consumeHookEvent(_ event: HookEvent) {

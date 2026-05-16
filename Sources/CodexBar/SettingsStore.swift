@@ -102,6 +102,58 @@ enum MultiAccountMenuLayout: String, CaseIterable, Identifiable {
     }
 }
 
+enum PetUsageDisplayMode: String, CaseIterable, Identifiable {
+    case remaining = "left"
+    case used
+    case both
+
+    var id: String {
+        self.rawValue
+    }
+
+    var label: String {
+        switch self {
+        case .remaining: "Left"
+        case .used: "Used"
+        case .both: "Both"
+        }
+    }
+
+    var wireValue: UInt8 {
+        switch self {
+        case .remaining: 0
+        case .used: 1
+        case .both: 2
+        }
+    }
+}
+
+enum PetPersonality: String, CaseIterable, Identifiable {
+    case calm
+    case playful
+    case focus
+
+    var id: String {
+        self.rawValue
+    }
+
+    var label: String {
+        switch self {
+        case .calm: "Calm"
+        case .playful: "Playful"
+        case .focus: "Focus"
+        }
+    }
+
+    var wireValue: UInt8 {
+        switch self {
+        case .calm: 0
+        case .playful: 1
+        case .focus: 2
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class SettingsStore {
@@ -415,6 +467,7 @@ extension SettingsStore {
             selectedMenuProviderRaw: selectedMenuProviderRaw,
             providerDetectionCompleted: providerDetectionCompleted,
             appLanguageRaw: appLanguageRaw,
+            petEnabled: petDefaults.petEnabled,
             petPushIntervalSeconds: petDefaults.petPushIntervalSeconds,
             petQuipsEnabled: petDefaults.petQuipsEnabled,
             petMicroActionsEnabled: petDefaults.petMicroActionsEnabled,
@@ -444,6 +497,7 @@ extension SettingsStore {
     }
 
     private struct LoadedPetDefaults {
+        var petEnabled: Bool
         var petPushIntervalSeconds: Double
         var petQuipsEnabled: Bool
         var petMicroActionsEnabled: Bool
@@ -456,16 +510,21 @@ extension SettingsStore {
     }
 
     private static func loadPetDefaults(userDefaults: UserDefaults) -> LoadedPetDefaults {
-        let interval = userDefaults.object(forKey: "petPushIntervalSeconds") as? Double ?? 5.0
+        let enabled = userDefaults.object(forKey: "petEnabled") as? Bool ?? false
+        let rawInterval = userDefaults.object(forKey: "petPushIntervalSeconds") as? Double ?? 5.0
+        let interval = max(1.0, min(60.0, rawInterval))
         let quips = userDefaults.object(forKey: "petQuipsEnabled") as? Bool ?? true
         let micro = userDefaults.object(forKey: "petMicroActionsEnabled") as? Bool ?? true
         let milestones = userDefaults.object(forKey: "petMilestoneCelebrationsEnabled") as? Bool ?? true
         let quiet = userDefaults.object(forKey: "petQuietHoursEnabled") as? Bool ?? false
-        let quietStart = userDefaults.object(forKey: "petQuietHoursStart") as? Int ?? 22
-        let quietEnd = userDefaults.object(forKey: "petQuietHoursEnd") as? Int ?? 7
-        let usage = userDefaults.string(forKey: "petUsageDisplay") ?? "left"
-        let personality = userDefaults.string(forKey: "petPersonality") ?? "playful"
+        let quietStart = max(0, min(23, userDefaults.object(forKey: "petQuietHoursStart") as? Int ?? 22))
+        let quietEnd = max(0, min(23, userDefaults.object(forKey: "petQuietHoursEnd") as? Int ?? 7))
+        let usage = PetUsageDisplayMode(rawValue: userDefaults.string(forKey: "petUsageDisplay") ?? "")
+            ?? .remaining
+        let personality = PetPersonality(rawValue: userDefaults.string(forKey: "petPersonality") ?? "")
+            ?? .playful
         return LoadedPetDefaults(
+            petEnabled: enabled,
             petPushIntervalSeconds: interval,
             petQuipsEnabled: quips,
             petMicroActionsEnabled: micro,
@@ -473,8 +532,8 @@ extension SettingsStore {
             petQuietHoursEnabled: quiet,
             petQuietHoursStart: quietStart,
             petQuietHoursEnd: quietEnd,
-            petUsageDisplayRaw: usage,
-            petPersonalityRaw: personality)
+            petUsageDisplayRaw: usage.rawValue,
+            petPersonalityRaw: personality.rawValue)
     }
 
     private static func loadMenuBarMetricPreferences(userDefaults: UserDefaults) -> [String: String] {

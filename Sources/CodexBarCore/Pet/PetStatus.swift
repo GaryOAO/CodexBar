@@ -128,7 +128,10 @@ public enum PetMode: UInt8, Sendable {
     /// on the pet (Read/Grep → Debugger, Edit/Write → Typing, etc.).
     public static func from(hookEvent: HookEvent) -> PetMode {
         switch hookEvent.kind {
-        case .sessionStart: .greeting
+        // The firmware owns the "first connected" greeting. Treat CLI
+        // session starts as standby so reconnects / new shell sessions do not
+        // make the pet bounce between HELLO and idle/resting.
+        case .sessionStart: .idle
         case .stop: .idle
         case .userPromptSubmit: .thinking
         case .permissionRequest: .notification
