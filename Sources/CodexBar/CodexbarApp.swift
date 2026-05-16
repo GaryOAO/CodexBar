@@ -349,6 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let updaterController: UpdaterProviding = makeUpdaterController()
     private let confettiOverlayController = ScreenConfettiOverlayController()
     private let confettiLogger = CodexBarLog.logger(LogCategories.confetti)
+    private let hooksLogger = CodexBarLog.logger("hooks")
     private var statusController: StatusItemControlling?
     private var store: UsageStore?
     private var settings: SettingsStore?
@@ -357,6 +358,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var managedCodexAccountCoordinator: ManagedCodexAccountCoordinator?
     private var codexAccountPromotionCoordinator: CodexAccountPromotionCoordinator?
     private var hasInstalledWeeklyLimitResetObserver = false
+    private var hookReceiver: HookEventReceiver?
+    private var hookConsumerTask: Task<Void, Never>?
 
     func configure(_ dependencies: Dependencies) {
         self.store = dependencies.store
@@ -387,11 +390,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 object: nil)
             self.hasInstalledWeeklyLimitResetObserver = true
         }
+        self.startHookReceiver()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         self.confettiOverlayController.dismiss()
         TTYCommandRunner.terminateActiveProcessesForAppShutdown()
+        self.hookConsumerTask?.cancel()
+        self.hookReceiver?.stop()
+    }
+
+    private func startHookReceiver() {
+        guard self.hookReceiver == nil else { return }
+        let receiver = HookEventReceiver()
+        do {
+            try receiver.start()
+        } catch {
+            self.hooksLogger.warning(
+                "could not start hook receiver",
+                metadata: ["error": "\(error)"])
+            return
+        }
+        self.hookReceiver = receiver
+        // Drain the AsyncStream so events flow even though no downstream consumer
+        // is wired yet. Once the BLE central is added in B2 it will subscribe
+        // here too via a shared broker.
+        self.hookConsumerTask = Task.detached { [weak self] in
+            for await event in receiver.events {
+                self?.hooksLogger.debug(
+                    "consumed hook event",
+                    metadata: [
+                        "kind": event.kind.rawValue,
+                        "tool": event.toolName ?? "-",
+                        "source": event.source.rawValue,
+                    ])
+            }
+        }
     }
 
     func runProviderLoginFlow(_ provider: UsageProvider) async {
