@@ -127,11 +127,17 @@ struct AdvancedPane: View {
                         }
 
                         HStack {
-                            Button("+ Add Profile") {
-                                self.addClaudeProxyProfile()
+                            Menu("+ Add Profile") {
+                                Button("Manual") {
+                                    self.addClaudeProxyProfile(source: .manual)
+                                }
+                                Button("Auto (read ~/.claude/settings.json)") {
+                                    self.addClaudeProxyProfile(source: .auto)
+                                }
                             }
-                            .buttonStyle(.bordered)
+                            .menuStyle(.borderlessButton)
                             .controlSize(.small)
+                            .fixedSize()
 
                             Spacer()
                         }
@@ -175,12 +181,21 @@ extension AdvancedPane {
         ClaudeProxyProfileStore.setActiveProfileID(self.claudeProxyActiveProfileID)
     }
 
-    private func addClaudeProxyProfile() {
+    private func addClaudeProxyProfile(source: ClaudeProxyProfile.Source = .manual) {
         let nextIndex = self.claudeProxyProfiles.count + 1
+        let name: String = switch source {
+        case .manual:
+            "Profile \(nextIndex)"
+        case .auto:
+            self.claudeProxyProfiles.contains(where: { $0.source == .auto })
+                ? "Auto \(nextIndex)"
+                : "Auto"
+        }
         let profile = ClaudeProxyProfile(
-            name: "Profile \(nextIndex)",
+            name: name,
             baseURL: "",
-            token: "")
+            token: "",
+            source: source)
         self.claudeProxyProfiles.append(profile)
         if self.claudeProxyActiveProfileID == nil {
             self.claudeProxyActiveProfileID = profile.id
@@ -217,6 +232,10 @@ extension AdvancedPane {
     private func claudeProxyProfileRow(binding: Binding<ClaudeProxyProfile>) -> some View {
         let profile = binding.wrappedValue
         let isActive = (self.claudeProxyActiveProfileID ?? self.claudeProxyProfiles.first?.id) == profile.id
+        let isAuto = profile.source == .auto
+        let autoConfig: ClaudeProxyProfileStore.AutoConfig? = isAuto
+            ? ClaudeProxyProfileStore.resolveAutoConfig()
+            : nil
 
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 8) {
@@ -233,9 +252,22 @@ extension AdvancedPane {
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 140)
 
-                TextField("https://cc.example.com", text: binding.baseURL)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
+                if isAuto {
+                    // Auto profile: baseURL is sourced from ~/.claude/settings.json
+                    // at resolution time. Show what we currently resolved (or a
+                    // hint if nothing was found) and disable editing — the user's
+                    // single source of truth is the JSON file, not this field.
+                    TextField(
+                        autoConfig == nil ? "no env.ANTHROPIC_BASE_URL in settings.json" : "",
+                        text: .constant(autoConfig?.baseURL ?? ""))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(true)
+                        .foregroundStyle(.secondary)
+                } else {
+                    TextField("https://cc.example.com", text: binding.baseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                }
 
                 Button {
                     self.deleteClaudeProxyProfile(id: profile.id)
@@ -252,10 +284,40 @@ extension AdvancedPane {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(width: 44, alignment: .trailing)
-                SecureField("Proxy API key or OAuth access token", text: binding.token)
-                    .textFieldStyle(.roundedBorder)
+                if isAuto {
+                    SecureField(
+                        autoConfig == nil ? "no env.ANTHROPIC_API_KEY in settings.json" : "",
+                        text: .constant(autoConfig?.token ?? ""))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(true)
+                } else {
+                    SecureField("Proxy API key or OAuth access token", text: binding.token)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
             .padding(.leading, 24)
+
+            if isAuto {
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.text")
+                        .imageScale(.small)
+                    Text("""
+                    Reads env.ANTHROPIC_BASE_URL + env.ANTHROPIC_API_KEY \
+                    from ~/.claude/settings.json on every request.
+                    """)
+                    Button {
+                        self.reloadClaudeProxyProfiles()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .imageScale(.small)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Re-read settings.json now")
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .padding(.leading, 24)
+            }
         }
         .padding(8)
         .background(isActive
