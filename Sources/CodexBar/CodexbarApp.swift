@@ -361,7 +361,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hookReceiver: HookEventReceiver?
     private var hookConsumerTask: Task<Void, Never>?
     private var petClient: PetBLEClient?
-    private var petReqCounter: UInt32 = 0
+    private var petBridge: PetUsageBridge?
+    private var petPushTimer: Timer?
+    private var petLastMode: UInt8 = PetMode.idle.rawValue
 
     func configure(_ dependencies: Dependencies) {
         self.store = dependencies.store
@@ -370,6 +372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.preferencesSelection = dependencies.selection
         self.managedCodexAccountCoordinator = dependencies.managedCodexAccountCoordinator
         self.codexAccountPromotionCoordinator = dependencies.codexAccountPromotionCoordinator
+        self.petBridge = PetUsageBridge(store: dependencies.store)
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -398,6 +401,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         self.confettiOverlayController.dismiss()
         TTYCommandRunner.terminateActiveProcessesForAppShutdown()
+        self.petPushTimer?.invalidate()
+        self.petPushTimer = nil
         self.hookConsumerTask?.cancel()
         self.hookReceiver?.stop()
     }
@@ -435,6 +440,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pet = PetBLEClient()
         pet.start()
         self.petClient = pet
+        PetSharedAccess.client = pet
+
+        // Periodically refresh the slow fields (5h%, week%, today_tokens,
+        // epoch) so the pet's right-side dashboard isn't frozen between
+        // hook events. 5s strikes a balance between BLE airtime and how
+        // quickly numbers update visually.
+        self.petPushTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pushPetStatusPeriodic() }
+        }
+        // Push once immediately so the pet doesn't show zeros until the
+        // first timer tick lands 5s later.
+        self.pushPetStatusPeriodic()
 
         // Drain the AsyncStream and forward each event to the pet as a
         // PetStatus snapshot. Provider/usage stay zero for now (M2 will
@@ -456,15 +473,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "tool": event.toolName ?? "-",
                 "source": event.source.rawValue,
             ])
-        self.petReqCounter = self.petReqCounter &+ 1
+        // Hook event only carries "what the user is doing right now" — the
+        // mode. Numeric fields (5h%, week%, today_tokens) come from the
+        // UsageStore via PetUsageBridge. Merge the two here so a single
+        // BLE write covers both axes.
         let mode = PetMode.from(hookEvent: event)
-        let status = PetStatus(
-            providerIdx: PetProvider.claude.rawValue,
-            usagePct: 0,
-            mode: mode.rawValue,
-            flags: 0,
-            reqCounter: self.petReqCounter)
+        self.petLastMode = mode.rawValue
+        let snapshot = self.petBridge?.snapshot() ?? PetStatus()
+        var status = snapshot
+        status.mode = mode.rawValue
+        status.epochSeconds = UInt32(Date().timeIntervalSince1970)
         self.petClient?.pushStatus(status)
+    }
+
+    private func pushPetStatusPeriodic() {
+        guard let client = self.petClient, let bridge = self.petBridge else { return }
+        var status = bridge.snapshot()
+        status.mode = self.petLastMode
+        client.pushStatus(status)
     }
 
     func runProviderLoginFlow(_ provider: UsageProvider) async {

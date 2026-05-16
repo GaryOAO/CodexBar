@@ -1,50 +1,73 @@
 import Foundation
 
-/// 8-byte payload sent to the pet over BLE. Binary layout matches the
-/// ESP32 firmware's `cbar_status_t` exactly so we can serialise by raw
-/// memcpy:
+/// 18-byte payload sent to the pet over BLE. Binary layout matches the
+/// ESP32 firmware's `cbar_status_t` exactly so we can serialise by writing
+/// the fields in declaration order:
 ///
-///   uint8_t provider_idx   // 0=none, 1=claude, 2=codex, 3=cursor, ...
-///   uint8_t usage_pct      // 0..100 of the active provider
-///   uint8_t mode           // PetMode value (see PetMode below)
-///   uint8_t flags          // bit0: usage>=90%, bit1: rate_limited,
-///                          // bit2: any_provider_fetching
-///   uint32_t req_counter   // monotonic counter incremented on each
-///                          // CLI hook event
-///
-/// Both sides are arm64 / xtensa little-endian, so the natural Swift
-/// struct layout (no padding before req_counter because the four UInt8
-/// fields exactly fill the alignment slot) matches packed C.
+///   [0]  uint8  provider_idx       0=none, 1=claude, 2=codex, ...
+///   [1]  uint8  usage_5h_pct       0..100, Claude 5-hour block
+///   [2]  uint8  usage_week_pct     0..100, Claude weekly
+///   [3]  uint8  mode               PetMode enum
+///   [4]  uint8  flags              bit0: 5h>=90%, bit1: week>=90%,
+///                                  bit2: rate_limited, bit3: any_fetching
+///   [5]  uint8  reserved0          0
+///   [6:8]  uint16 reset_5h_minutes    0xFFFF = unknown
+///   [8:10] uint16 reset_week_minutes  0xFFFF = unknown
+///   [10:14] uint32 today_tokens     Claude tokens spent today
+///   [14:18] uint32 epoch_seconds    current unix time
 public struct PetStatus: Sendable, Equatable {
+    public static let unknownReset: UInt16 = 0xFFFF
+    public static let wireSize = 18
+
     public var providerIdx: UInt8
-    public var usagePct: UInt8
+    public var usage5hPct: UInt8
+    public var usageWeekPct: UInt8
     public var mode: UInt8
     public var flags: UInt8
-    public var reqCounter: UInt32
+    public var reset5hMinutes: UInt16
+    public var resetWeekMinutes: UInt16
+    public var todayTokens: UInt32
+    public var epochSeconds: UInt32
 
     public init(
         providerIdx: UInt8 = 0,
-        usagePct: UInt8 = 0,
+        usage5hPct: UInt8 = 0,
+        usageWeekPct: UInt8 = 0,
         mode: UInt8 = 0,
         flags: UInt8 = 0,
-        reqCounter: UInt32 = 0)
+        reset5hMinutes: UInt16 = PetStatus.unknownReset,
+        resetWeekMinutes: UInt16 = PetStatus.unknownReset,
+        todayTokens: UInt32 = 0,
+        epochSeconds: UInt32 = 0)
     {
         self.providerIdx = providerIdx
-        self.usagePct = usagePct
+        self.usage5hPct = usage5hPct
+        self.usageWeekPct = usageWeekPct
         self.mode = mode
         self.flags = flags
-        self.reqCounter = reqCounter
+        self.reset5hMinutes = reset5hMinutes
+        self.resetWeekMinutes = resetWeekMinutes
+        self.todayTokens = todayTokens
+        self.epochSeconds = epochSeconds
     }
 
-    /// Wire-encode to exactly 8 little-endian bytes.
+    /// Wire-encode to exactly 18 little-endian bytes matching the C layout.
     public func encoded() -> Data {
-        var data = Data(capacity: 8)
+        var data = Data(capacity: Self.wireSize)
         data.append(self.providerIdx)
-        data.append(self.usagePct)
+        data.append(self.usage5hPct)
+        data.append(self.usageWeekPct)
         data.append(self.mode)
         data.append(self.flags)
-        var ctrLE = self.reqCounter.littleEndian
-        withUnsafeBytes(of: &ctrLE) { data.append(contentsOf: $0) }
+        data.append(0) // reserved0
+        var r5 = self.reset5hMinutes.littleEndian
+        withUnsafeBytes(of: &r5) { data.append(contentsOf: $0) }
+        var rw = self.resetWeekMinutes.littleEndian
+        withUnsafeBytes(of: &rw) { data.append(contentsOf: $0) }
+        var tt = self.todayTokens.littleEndian
+        withUnsafeBytes(of: &tt) { data.append(contentsOf: $0) }
+        var es = self.epochSeconds.littleEndian
+        withUnsafeBytes(of: &es) { data.append(contentsOf: $0) }
         return data
     }
 }

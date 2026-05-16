@@ -14,6 +14,10 @@ struct AdvancedPane: View {
     @State private var petHookStatus: String = ""
     @State private var petHookBusy: Bool = false
 
+    @State private var petBleState: String = "—"
+    @State private var petFirmware: String = "—"
+    @State private var petTestStatus: String = ""
+
     private var activeClaudeProxyProfile: ClaudeProxyProfile? {
         guard let id = self.claudeProxyActiveProfileID else { return self.claudeProxyProfiles.first }
         return self.claudeProxyProfiles.first(where: { $0.id == id }) ?? self.claudeProxyProfiles.first
@@ -197,6 +201,52 @@ struct AdvancedPane: View {
                 Divider()
 
                 SettingsSection(
+                    title: "Desktop Pet (BLE)",
+                    caption: """
+                    Live link to the ESP32-S3 RLCD pet companion. \
+                    The status panel mirrors the active Claude provider's \
+                    5-hour and weekly usage. Tap "Test pulse" to confirm \
+                    the pet is reacting.
+                    """) {
+                        HStack(spacing: 12) {
+                            Image(systemName: self.petBleState == "ready"
+                                ? "dot.radiowaves.left.and.right"
+                                : "antenna.radiowaves.left.and.right.slash")
+                                .foregroundStyle(self.petBleState == "ready" ? Color.green : .secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Link: \(self.petBleState)")
+                                    .font(.body)
+                                Text("Firmware: \(self.petFirmware)")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                        }
+
+                        HStack(spacing: 8) {
+                            Button("Set theme: Clawd") { self.sendPetTheme(.clawd) }
+                            Button("Calico") { self.sendPetTheme(.calico) }
+                            Button("Cloud") { self.sendPetTheme(.cloudling) }
+                            Button("Tank") { self.sendPetTheme(.tank) }
+                            Button("Auto") { self.sendPetTheme(.auto) }
+                        }
+                        .controlSize(.small)
+
+                        HStack(spacing: 8) {
+                            Button("Test pulse") { self.sendPetTestPulse() }
+                                .controlSize(.small)
+                            if !self.petTestStatus.isEmpty {
+                                Text(self.petTestStatus)
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                        }
+                    }
+
+                Divider()
+
+                SettingsSection(
                     title: L("section_keychain_access"),
                     caption: L("keychain_access_caption"))
                 {
@@ -212,7 +262,36 @@ struct AdvancedPane: View {
         }
         .onAppear {
             self.reloadClaudeProxyProfiles()
+            self.refreshPetState()
         }
+    }
+
+    private func sendPetTheme(_ theme: PetBLEClient.Theme) {
+        PetSharedAccess.client?.setTheme(theme)
+        self.petTestStatus = "Sent theme = \(theme)"
+    }
+
+    private func sendPetTestPulse() {
+        guard let client = PetSharedAccess.client else {
+            self.petTestStatus = "No pet client yet"
+            return
+        }
+        var status = PetStatus(
+            providerIdx: PetProvider.claude.rawValue,
+            usage5hPct: 42,
+            usageWeekPct: 73,
+            mode: PetMode.celebrating.rawValue,
+            flags: 0,
+            todayTokens: 125_000,
+            epochSeconds: UInt32(Date().timeIntervalSince1970))
+        client.pushStatus(status)
+        self.petTestStatus = "Test pulse sent"
+    }
+
+    private func refreshPetState() {
+        guard let client = PetSharedAccess.client else { return }
+        self.petBleState = String(describing: client.state)
+        self.petFirmware = client.firmwareInfo ?? "—"
     }
 
     private func runPetHookInstall() {
