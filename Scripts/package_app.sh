@@ -355,6 +355,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CodexBuildTimestamp</key><string>${BUILD_TIMESTAMP}</string>
     <key>CodexGitCommit</key><string>${GIT_COMMIT}</string>
     <key>CodexBarTeamID</key><string>${APP_TEAM_ID}</string>
+    <key>NSBluetoothAlwaysUsageDescription</key><string>CodexBar uses Bluetooth to send live coding-session status (provider, usage, mode) to the optional ESP32-S3 desktop pet companion.</string>
 </dict>
 </plist>
 PLIST

@@ -360,6 +360,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasInstalledWeeklyLimitResetObserver = false
     private var hookReceiver: HookEventReceiver?
     private var hookConsumerTask: Task<Void, Never>?
+    private var petClient: PetBLEClient?
+    private var petReqCounter: UInt32 = 0
 
     func configure(_ dependencies: Dependencies) {
         self.store = dependencies.store
@@ -425,20 +427,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         self.hookReceiver = receiver
-        // Drain the AsyncStream so events flow even though no downstream consumer
-        // is wired yet. Once the BLE central is added in B2 it will subscribe
-        // here too via a shared broker.
+
+        // Start the BLE central too. It scans for "ClawdPet" + the pet
+        // service UUID; if no pet is present nothing bad happens (logs a
+        // warning when Bluetooth itself is off). When the pet shows up,
+        // subsequent hook events get pushed as PetStatus writes.
+        let pet = PetBLEClient()
+        pet.start()
+        self.petClient = pet
+
+        // Drain the AsyncStream and forward each event to the pet as a
+        // PetStatus snapshot. Provider/usage stay zero for now (M2 will
+        // wire ProviderState into this path); mode and req_counter are
+        // the immediately useful signals to expose.
         self.hookConsumerTask = Task.detached { [weak self] in
             for await event in receiver.events {
-                self?.hooksLogger.debug(
-                    "consumed hook event",
-                    metadata: [
-                        "kind": event.kind.rawValue,
-                        "tool": event.toolName ?? "-",
-                        "source": event.source.rawValue,
-                    ])
+                guard let self else { continue }
+                await self.consumeHookEvent(event)
             }
         }
+    }
+
+    private func consumeHookEvent(_ event: HookEvent) {
+        self.hooksLogger.debug(
+            "consumed hook event",
+            metadata: [
+                "kind": event.kind.rawValue,
+                "tool": event.toolName ?? "-",
+                "source": event.source.rawValue,
+            ])
+        self.petReqCounter = self.petReqCounter &+ 1
+        let mode = PetMode.from(hookEvent: event)
+        let status = PetStatus(
+            providerIdx: PetProvider.claude.rawValue,
+            usagePct: 0,
+            mode: mode.rawValue,
+            flags: 0,
+            reqCounter: self.petReqCounter)
+        self.petClient?.pushStatus(status)
     }
 
     func runProviderLoginFlow(_ provider: UsageProvider) async {
