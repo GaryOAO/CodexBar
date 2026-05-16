@@ -9,8 +9,13 @@ import Foundation
 ///   [2]  uint8  usage_week_pct     0..100, Claude weekly
 ///   [3]  uint8  mode               PetMode enum
 ///   [4]  uint8  flags              bit0: 5h>=90%, bit1: week>=90%,
-///                                  bit2: rate_limited, bit3: any_fetching
-///   [5]  uint8  reserved0          0
+///                                  bit2: rate_limited, bit3: any_fetching,
+///                                  bit4: quips_disabled (preferences),
+///                                  bit5: micro_actions_disabled (preferences),
+///                                  bit6: milestones_disabled (preferences),
+///                                  bit7: quiet_hours_active (preferences)
+///   [5]  uint8  presentation        low nibble: usage display,
+///                                  high nibble: personality preset
 ///   [6:8]  uint16 reset_5h_minutes    0xFFFF = unknown
 ///   [8:10] uint16 reset_week_minutes  0xFFFF = unknown
 ///   [10:14] uint32 today_tokens     Claude tokens spent today
@@ -19,11 +24,31 @@ public struct PetStatus: Sendable, Equatable {
     public static let unknownReset: UInt16 = 0xFFFF
     public static let wireSize = 18
 
+    /// Flag bit (0x01) — 5-hour quota is at/above the warning threshold.
+    public static let flagBitFiveHourWarning: UInt8 = 0x01
+    /// Flag bit (0x02) — weekly quota is at/above the warning threshold.
+    public static let flagBitWeeklyWarning: UInt8 = 0x02
+    /// Flag bit (0x04) — the visible Claude window is effectively exhausted.
+    public static let flagBitRateLimited: UInt8 = 0x04
+    /// Flag bit (0x08) — CodexBar is currently refreshing provider/token state.
+    public static let flagBitAnyFetching: UInt8 = 0x08
+    /// Flag bit (0x10) — pet should silence text quips. Driven by the
+    /// "Random one-liner quips" preference toggle in the desktop app.
+    public static let flagBitQuipsDisabled: UInt8 = 0x10
+    /// Flag bit (0x20) — pet should skip blink/micro-action overlays.
+    public static let flagBitMicroActionsDisabled: UInt8 = 0x20
+    /// Flag bit (0x40) — pet should skip token-milestone celebration overlays.
+    public static let flagBitMilestonesDisabled: UInt8 = 0x40
+    /// Flag bit (0x80) — pet should dim or sleep regardless of activity
+    /// because the desktop app is currently inside the user's quiet hours.
+    public static let flagBitQuietHoursActive: UInt8 = 0x80
+
     public var providerIdx: UInt8
     public var usage5hPct: UInt8
     public var usageWeekPct: UInt8
     public var mode: UInt8
     public var flags: UInt8
+    public var presentation: UInt8
     public var reset5hMinutes: UInt16
     public var resetWeekMinutes: UInt16
     public var todayTokens: UInt32
@@ -35,6 +60,7 @@ public struct PetStatus: Sendable, Equatable {
         usageWeekPct: UInt8 = 0,
         mode: UInt8 = 0,
         flags: UInt8 = 0,
+        presentation: UInt8 = 0,
         reset5hMinutes: UInt16 = PetStatus.unknownReset,
         resetWeekMinutes: UInt16 = PetStatus.unknownReset,
         todayTokens: UInt32 = 0,
@@ -45,6 +71,7 @@ public struct PetStatus: Sendable, Equatable {
         self.usageWeekPct = usageWeekPct
         self.mode = mode
         self.flags = flags
+        self.presentation = presentation
         self.reset5hMinutes = reset5hMinutes
         self.resetWeekMinutes = resetWeekMinutes
         self.todayTokens = todayTokens
@@ -59,7 +86,7 @@ public struct PetStatus: Sendable, Equatable {
         data.append(self.usageWeekPct)
         data.append(self.mode)
         data.append(self.flags)
-        data.append(0) // reserved0
+        data.append(self.presentation)
         var r5 = self.reset5hMinutes.littleEndian
         withUnsafeBytes(of: &r5) { data.append(contentsOf: $0) }
         var rw = self.resetWeekMinutes.littleEndian

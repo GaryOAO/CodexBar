@@ -11,9 +11,11 @@ import Foundation
 @MainActor
 final class PetUsageBridge {
     private weak var store: UsageStore?
+    private weak var settings: SettingsStore?
 
-    init(store: UsageStore) {
+    init(store: UsageStore, settings: SettingsStore) {
         self.store = store
+        self.settings = settings
     }
 
     func snapshot() -> PetStatus {
@@ -26,28 +28,24 @@ final class PetUsageBridge {
         let reset5h = self.resetMinutes(usage?.primary?.resetsAt)
         let resetWk = self.resetMinutes(usage?.secondary?.resetsAt)
 
-        // Empirically, `sessionTokens` is a current-Claude-session figure
-        // that can be much larger than a calendar-day count (long sessions
-        // span days; cache reads inflate the number). For the pet's "TODAY"
-        // dashboard we want the per-calendar-day bucket. Prefer the dated
-        // bucket and only fall back to sessionTokens if no daily breakdown
-        // is available yet. Also cap at 9.9M so the display formatter has a
-        // chance of staying inside its 7-char ESP32 cell.
+        // Today's tokens. CostUsageFetcher.sessionTokens is sourced from
+        // `currentDay?.totalTokens` (the most recent daily bucket) and
+        // already includes cache reads — that's what shows up in CodexBar's
+        // own UI and what the user sees as "today". Use it as the primary
+        // source and only re-derive from the daily array if it's missing.
+        // The ESP32 formatter picks K / M / B so 1B+ days render cleanly.
         var todayRaw = 0
-        if let buckets = tokens?.daily,
-           let todayBucket = Self.todayBucket(buckets),
-           let total = todayBucket.totalTokens
-        {
-            todayRaw = total
-        } else if let sess = tokens?.sessionTokens, sess > 0 {
+        if let sess = tokens?.sessionTokens, sess > 0 {
             todayRaw = sess
+        } else if let buckets = tokens?.daily {
+            todayRaw = Self.sumTokensForToday(buckets)
         }
-        let todayCapped = min(max(todayRaw, 0), 9_999_999)
-        let today = UInt32(todayCapped)
+        let today = UInt32(clamping: todayRaw)
 
         var flags: UInt8 = 0
         if pct5h >= 90 { flags |= 0x01 }
         if pctWk >= 90 { flags |= 0x02 }
+        flags |= self.preferenceFlags()
 
         return PetStatus(
             providerIdx: PetProvider.claude.rawValue,
@@ -59,6 +57,40 @@ final class PetUsageBridge {
             resetWeekMinutes: resetWk,
             todayTokens: today,
             epochSeconds: UInt32(Date().timeIntervalSince1970))
+    }
+
+    /// Translate the user's preference toggles into PetStatus flag bits so
+    /// the firmware can suppress overlays without us re-pushing on every
+    /// settings change. Flags 4..7 carry the toggles defined in
+    /// PetStatus.flagBit*; bit7 also gates on the current local-hour falling
+    /// inside the quiet-hours window.
+    private func preferenceFlags() -> UInt8 {
+        guard let settings = self.settings else { return 0 }
+        var bits: UInt8 = 0
+        if !settings.petQuipsEnabled { bits |= PetStatus.flagBitQuipsDisabled }
+        if !settings.petMicroActionsEnabled { bits |= PetStatus.flagBitMicroActionsDisabled }
+        if !settings.petMilestoneCelebrationsEnabled { bits |= PetStatus.flagBitMilestonesDisabled }
+        if settings.petQuietHoursEnabled,
+           Self.isHourInQuietWindow(
+               hour: Calendar.current.component(.hour, from: Date()),
+               start: settings.petQuietHoursStart,
+               end: settings.petQuietHoursEnd)
+        {
+            bits |= PetStatus.flagBitQuietHoursActive
+        }
+        return bits
+    }
+
+    /// Quiet-hours window is `[start, end)` in local time. When `end < start`
+    /// the window wraps midnight (e.g. 22..7 covers 22, 23, 0..6). When
+    /// `start == end` the window is treated as empty.
+    static func isHourInQuietWindow(hour: Int, start: Int, end: Int) -> Bool {
+        let h = max(0, min(23, hour))
+        let s = max(0, min(23, start))
+        let e = max(0, min(23, end))
+        if s == e { return false }
+        if s < e { return h >= s && h < e }
+        return h >= s || h < e
     }
 
     private func pct(_ value: Double?) -> UInt8 {
@@ -74,11 +106,20 @@ final class PetUsageBridge {
         return UInt16(min(minutes, 0xFFFE))
     }
 
-    private static func todayBucket(_ buckets: [CostUsageDailyReport.Entry]) -> CostUsageDailyReport.Entry? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate]
-        let todayString = formatter.string(from: Date())
-        return buckets.first(where: { $0.date.hasPrefix(todayString) })
+    /// Sum totalTokens across any daily entries whose `date` matches today
+    /// in local time. CostUsageFetcher stores dates as strings — different
+    /// providers use different formats ("2026-05-16", "2026-05-16T00:00:00Z",
+    /// etc.) — so we match by string prefix on the YYYY-MM-DD portion.
+    private static func sumTokensForToday(_ buckets: [CostUsageDailyReport.Entry]) -> Int {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        let today = formatter.string(from: Date())
+        return buckets
+            .filter { $0.date.hasPrefix(today) }
+            .compactMap(\.totalTokens)
+            .reduce(0, +)
     }
 }
 #endif

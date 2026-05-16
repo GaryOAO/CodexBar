@@ -223,8 +223,12 @@ struct AdvancedPane: View {
                             Spacer()
                         }
 
+                        Text("Theme override")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
                         HStack(spacing: 8) {
-                            Button("Set theme: Clawd") { self.sendPetTheme(.clawd) }
+                            Button("Clawd") { self.sendPetTheme(.clawd) }
                             Button("Calico") { self.sendPetTheme(.calico) }
                             Button("Cloud") { self.sendPetTheme(.cloudling) }
                             Button("Tank") { self.sendPetTheme(.tank) }
@@ -232,15 +236,93 @@ struct AdvancedPane: View {
                         }
                         .controlSize(.small)
 
+                        Text("Personality")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        Picker("Personality", selection: self.$settings.petPersonality) {
+                            Text("Calm").tag("calm")
+                            Text("Playful").tag("playful")
+                            Text("Focus").tag("focus")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Push every \(Int(self.settings.petPushIntervalSeconds))s")
+                                    .font(.body)
+                                Spacer()
+                            }
+                            Slider(
+                                value: self.$settings.petPushIntervalSeconds,
+                                in: 1...30,
+                                step: 1)
+                            Text("How often CodexBar refreshes the pet's status over BLE.")
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        PreferenceToggleRow(
+                            title: "Random one-liner quips",
+                            subtitle: "Let the pet pipe up with occasional sayings when idle.",
+                            binding: self.$settings.petQuipsEnabled)
+                        PreferenceToggleRow(
+                            title: "Micro-action blinks",
+                            subtitle: "Subtle blink overlays between tool events.",
+                            binding: self.$settings.petMicroActionsEnabled)
+                        PreferenceToggleRow(
+                            title: "Token milestone celebrations",
+                            subtitle: "Confetti / cheer overlay when daily tokens hit a round number.",
+                            binding: self.$settings.petMilestoneCelebrationsEnabled)
+                        PreferenceToggleRow(
+                            title: "Quiet hours",
+                            subtitle: "Dim or sleep the pet during the configured window.",
+                            binding: self.$settings.petQuietHoursEnabled)
+
+                        if self.settings.petQuietHoursEnabled {
+                            HStack(spacing: 16) {
+                                Stepper(
+                                    "Start: \(self.settings.petQuietHoursStart):00",
+                                    value: self.$settings.petQuietHoursStart,
+                                    in: 0...23)
+                                Stepper(
+                                    "End: \(self.settings.petQuietHoursEnd):00",
+                                    value: self.$settings.petQuietHoursEnd,
+                                    in: 0...23)
+                                Spacer()
+                            }
+                            .controlSize(.small)
+                        }
+
+                        Text("Usage display")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        Picker("Usage display", selection: self.$settings.petUsageDisplay) {
+                            Text("Left").tag("left")
+                            Text("Used").tag("used")
+                            Text("Both").tag("both")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+
+                        Text("Test pulses")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
                         HStack(spacing: 8) {
                             Button("Test pulse") { self.sendPetTestPulse() }
-                                .controlSize(.small)
-                            if !self.petTestStatus.isEmpty {
-                                Text(self.petTestStatus)
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
+                            Button("Send disconnected") { self.sendDisconnectedTest() }
+                            Button("Send 100M milestone") { self.sendMilestoneTest() }
+                            Button("Send overheated") { self.sendOverheatedTest() }
                             Spacer()
+                        }
+                        .controlSize(.small)
+                        if !self.petTestStatus.isEmpty {
+                            Text(self.petTestStatus)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
                         }
                     }
 
@@ -276,7 +358,7 @@ struct AdvancedPane: View {
             self.petTestStatus = "No pet client yet"
             return
         }
-        var status = PetStatus(
+        let status = PetStatus(
             providerIdx: PetProvider.claude.rawValue,
             usage5hPct: 42,
             usageWeekPct: 73,
@@ -286,6 +368,58 @@ struct AdvancedPane: View {
             epochSeconds: UInt32(Date().timeIntervalSince1970))
         client.pushStatus(status)
         self.petTestStatus = "Test pulse sent"
+    }
+
+    private func sendDisconnectedTest() {
+        guard let client = PetSharedAccess.client else {
+            self.petTestStatus = "No pet client yet"
+            return
+        }
+        client.setTheme(.auto)
+        let status = PetStatus(
+            providerIdx: PetProvider.claude.rawValue,
+            usage5hPct: 0,
+            usageWeekPct: 0,
+            mode: PetMode.disconnected.rawValue,
+            flags: 0,
+            todayTokens: 0,
+            epochSeconds: UInt32(Date().timeIntervalSince1970))
+        client.pushStatus(status)
+        self.petTestStatus = "Disconnected status sent"
+    }
+
+    private func sendMilestoneTest() {
+        guard let client = PetSharedAccess.client else {
+            self.petTestStatus = "No pet client yet"
+            return
+        }
+        let status = PetStatus(
+            providerIdx: PetProvider.claude.rawValue,
+            usage5hPct: 50,
+            usageWeekPct: 50,
+            mode: PetMode.celebrating.rawValue,
+            flags: 0,
+            todayTokens: 100_000_000,
+            epochSeconds: UInt32(Date().timeIntervalSince1970))
+        client.pushStatus(status)
+        self.petTestStatus = "100M milestone sent"
+    }
+
+    private func sendOverheatedTest() {
+        guard let client = PetSharedAccess.client else {
+            self.petTestStatus = "No pet client yet"
+            return
+        }
+        let status = PetStatus(
+            providerIdx: PetProvider.claude.rawValue,
+            usage5hPct: 95,
+            usageWeekPct: 92,
+            mode: PetMode.overheated.rawValue,
+            flags: 0x01 | 0x02,
+            todayTokens: 0,
+            epochSeconds: UInt32(Date().timeIntervalSince1970))
+        client.pushStatus(status)
+        self.petTestStatus = "Overheated status sent"
     }
 
     private func refreshPetState() {

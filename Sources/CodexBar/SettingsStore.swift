@@ -348,21 +348,12 @@ extension SettingsStore {
         if Self.isRunningTests, creditsExtrasDefault == nil {
             userDefaults.set(true, forKey: "showOptionalCreditsAndExtraUsage")
         }
-        let openAIWebAccessDefault = userDefaults.object(forKey: "openAIWebAccessEnabled") as? Bool
-        let openAIWebAccessEnabled = openAIWebAccessDefault ?? false
-        if Self.isRunningTests, openAIWebAccessDefault == nil {
-            userDefaults.set(false, forKey: "openAIWebAccessEnabled")
-        }
-        let openAIWebBatterySaverDefault = userDefaults.object(forKey: "openAIWebBatterySaverEnabled") as? Bool
-        let openAIWebBatterySaverEnabled = openAIWebBatterySaverDefault ?? false
-        if Self.isRunningTests, openAIWebBatterySaverDefault == nil {
-            userDefaults.set(false, forKey: "openAIWebBatterySaverEnabled")
-        }
-        let providerStorageFootprintsDefault = userDefaults.object(forKey: "providerStorageFootprintsEnabled") as? Bool
-        let providerStorageFootprintsEnabled = providerStorageFootprintsDefault ?? false
-        if Self.isRunningTests, providerStorageFootprintsDefault == nil {
-            userDefaults.set(false, forKey: "providerStorageFootprintsEnabled")
-        }
+        let openAIWebAccessEnabled = Self.loadBoolWithTestSeed(
+            userDefaults: userDefaults, key: "openAIWebAccessEnabled", fallback: false)
+        let openAIWebBatterySaverEnabled = Self.loadBoolWithTestSeed(
+            userDefaults: userDefaults, key: "openAIWebBatterySaverEnabled", fallback: false)
+        let providerStorageFootprintsEnabled = Self.loadBoolWithTestSeed(
+            userDefaults: userDefaults, key: "providerStorageFootprintsEnabled", fallback: false)
         let jetbrainsIDEBasePath = userDefaults.string(forKey: "jetbrainsIDEBasePath") ?? ""
         let mergeIcons = userDefaults.object(forKey: "mergeIcons") as? Bool ?? true
         let switcherShowsIcons = userDefaults.object(forKey: "switcherShowsIcons") as? Bool ?? true
@@ -373,6 +364,7 @@ extension SettingsStore {
         let selectedMenuProviderRaw = userDefaults.string(forKey: "selectedMenuProvider")
         let providerDetectionCompleted = userDefaults.object(forKey: "providerDetectionCompleted") as? Bool ?? false
         let appLanguageRaw = userDefaults.string(forKey: "appLanguage")
+        let petDefaults = Self.loadPetDefaults(userDefaults: userDefaults)
 
         return SettingsDefaultsState(
             refreshFrequency: refreshFrequency,
@@ -422,7 +414,67 @@ extension SettingsStore {
             mergedOverviewSelectedProvidersRaw: mergedOverviewSelectedProvidersRaw,
             selectedMenuProviderRaw: selectedMenuProviderRaw,
             providerDetectionCompleted: providerDetectionCompleted,
-            appLanguageRaw: appLanguageRaw)
+            appLanguageRaw: appLanguageRaw,
+            petPushIntervalSeconds: petDefaults.petPushIntervalSeconds,
+            petQuipsEnabled: petDefaults.petQuipsEnabled,
+            petMicroActionsEnabled: petDefaults.petMicroActionsEnabled,
+            petMilestoneCelebrationsEnabled: petDefaults.petMilestoneCelebrationsEnabled,
+            petQuietHoursEnabled: petDefaults.petQuietHoursEnabled,
+            petQuietHoursStart: petDefaults.petQuietHoursStart,
+            petQuietHoursEnd: petDefaults.petQuietHoursEnd,
+            petUsageDisplayRaw: petDefaults.petUsageDisplayRaw,
+            petPersonalityRaw: petDefaults.petPersonalityRaw)
+    }
+
+    /// Read a Bool default while preserving the existing test-seeding
+    /// behaviour: when running under XCTest and the key has never been
+    /// written, seed it with `fallback` so downstream tests observe a
+    /// deterministic value rather than UserDefaults' implicit zero.
+    private static func loadBoolWithTestSeed(
+        userDefaults: UserDefaults,
+        key: String,
+        fallback: Bool) -> Bool
+    {
+        let stored = userDefaults.object(forKey: key) as? Bool
+        let resolved = stored ?? fallback
+        if Self.isRunningTests, stored == nil {
+            userDefaults.set(fallback, forKey: key)
+        }
+        return resolved
+    }
+
+    private struct LoadedPetDefaults {
+        var petPushIntervalSeconds: Double
+        var petQuipsEnabled: Bool
+        var petMicroActionsEnabled: Bool
+        var petMilestoneCelebrationsEnabled: Bool
+        var petQuietHoursEnabled: Bool
+        var petQuietHoursStart: Int
+        var petQuietHoursEnd: Int
+        var petUsageDisplayRaw: String
+        var petPersonalityRaw: String
+    }
+
+    private static func loadPetDefaults(userDefaults: UserDefaults) -> LoadedPetDefaults {
+        let interval = userDefaults.object(forKey: "petPushIntervalSeconds") as? Double ?? 5.0
+        let quips = userDefaults.object(forKey: "petQuipsEnabled") as? Bool ?? true
+        let micro = userDefaults.object(forKey: "petMicroActionsEnabled") as? Bool ?? true
+        let milestones = userDefaults.object(forKey: "petMilestoneCelebrationsEnabled") as? Bool ?? true
+        let quiet = userDefaults.object(forKey: "petQuietHoursEnabled") as? Bool ?? false
+        let quietStart = userDefaults.object(forKey: "petQuietHoursStart") as? Int ?? 22
+        let quietEnd = userDefaults.object(forKey: "petQuietHoursEnd") as? Int ?? 7
+        let usage = userDefaults.string(forKey: "petUsageDisplay") ?? "left"
+        let personality = userDefaults.string(forKey: "petPersonality") ?? "playful"
+        return LoadedPetDefaults(
+            petPushIntervalSeconds: interval,
+            petQuipsEnabled: quips,
+            petMicroActionsEnabled: micro,
+            petMilestoneCelebrationsEnabled: milestones,
+            petQuietHoursEnabled: quiet,
+            petQuietHoursStart: quietStart,
+            petQuietHoursEnd: quietEnd,
+            petUsageDisplayRaw: usage,
+            petPersonalityRaw: personality)
     }
 
     private static func loadMenuBarMetricPreferences(userDefaults: UserDefaults) -> [String: String] {

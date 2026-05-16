@@ -72,6 +72,25 @@ public final class PetBLEClient: NSObject, @unchecked Sendable {
         }
     }
 
+    public func stop() {
+        self.queue.async {
+            self.pendingStatus = nil
+            self.pendingTheme = nil
+            self.statusChar = nil
+            self.themeChar = nil
+            self.firmwareInfo = nil
+            if let central = self.central {
+                central.stopScan()
+                if let peripheral = self.peripheral {
+                    central.cancelPeripheralConnection(peripheral)
+                }
+            }
+            self.peripheral = nil
+            self.central = nil
+            self.setState(.off)
+        }
+    }
+
     public func pushStatus(_ status: PetStatus) {
         let data = status.encoded()
         self.queue.async {

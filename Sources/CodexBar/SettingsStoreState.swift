@@ -49,4 +49,13 @@ struct SettingsDefaultsState {
     var selectedMenuProviderRaw: String?
     var providerDetectionCompleted: Bool
     var appLanguageRaw: String?
+    var petPushIntervalSeconds: Double
+    var petQuipsEnabled: Bool
+    var petMicroActionsEnabled: Bool
+    var petMilestoneCelebrationsEnabled: Bool
+    var petQuietHoursEnabled: Bool
+    var petQuietHoursStart: Int
+    var petQuietHoursEnd: Int
+    var petUsageDisplayRaw: String
+    var petPersonalityRaw: String
 }

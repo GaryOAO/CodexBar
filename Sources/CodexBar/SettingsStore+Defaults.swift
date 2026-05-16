@@ -649,6 +649,100 @@ extension SettingsStore {
         get { self.debugLoadingPatternRaw.flatMap(LoadingPattern.init(rawValue:)) }
         set { self.debugLoadingPatternRaw = newValue?.rawValue }
     }
+
+    /// How frequently the BLE push timer fires (in seconds). Clamped to a
+    /// reasonable range when consumed; persisted as a Double so a slider
+    /// can drive it directly without integer rounding artifacts.
+    var petPushIntervalSeconds: Double {
+        get { self.defaultsState.petPushIntervalSeconds }
+        set {
+            self.defaultsState.petPushIntervalSeconds = newValue
+            self.userDefaults.set(newValue, forKey: "petPushIntervalSeconds")
+        }
+    }
+
+    /// When false, the pet should suppress random one-liner text quips.
+    /// Surfaces over the wire as PetStatus flag bit 4.
+    var petQuipsEnabled: Bool {
+        get { self.defaultsState.petQuipsEnabled }
+        set {
+            self.defaultsState.petQuipsEnabled = newValue
+            self.userDefaults.set(newValue, forKey: "petQuipsEnabled")
+        }
+    }
+
+    /// When false, the pet should skip micro-action blink overlays.
+    /// Surfaces as PetStatus flag bit 5.
+    var petMicroActionsEnabled: Bool {
+        get { self.defaultsState.petMicroActionsEnabled }
+        set {
+            self.defaultsState.petMicroActionsEnabled = newValue
+            self.userDefaults.set(newValue, forKey: "petMicroActionsEnabled")
+        }
+    }
+
+    /// When false, the pet should skip token-milestone celebration overlays.
+    /// Surfaces as PetStatus flag bit 6.
+    var petMilestoneCelebrationsEnabled: Bool {
+        get { self.defaultsState.petMilestoneCelebrationsEnabled }
+        set {
+            self.defaultsState.petMilestoneCelebrationsEnabled = newValue
+            self.userDefaults.set(newValue, forKey: "petMilestoneCelebrationsEnabled")
+        }
+    }
+
+    /// Master toggle for the quiet-hours feature. The bridge only sets the
+    /// quiet-hours-active flag bit when this is true *and* the current hour
+    /// falls in the configured window.
+    var petQuietHoursEnabled: Bool {
+        get { self.defaultsState.petQuietHoursEnabled }
+        set {
+            self.defaultsState.petQuietHoursEnabled = newValue
+            self.userDefaults.set(newValue, forKey: "petQuietHoursEnabled")
+        }
+    }
+
+    /// Hour-of-day (0..23, local time) when quiet hours begin.
+    var petQuietHoursStart: Int {
+        get { self.defaultsState.petQuietHoursStart }
+        set {
+            let clamped = max(0, min(23, newValue))
+            self.defaultsState.petQuietHoursStart = clamped
+            self.userDefaults.set(clamped, forKey: "petQuietHoursStart")
+        }
+    }
+
+    /// Hour-of-day (0..23, local time) when quiet hours end. If end < start
+    /// the window wraps over midnight.
+    var petQuietHoursEnd: Int {
+        get { self.defaultsState.petQuietHoursEnd }
+        set {
+            let clamped = max(0, min(23, newValue))
+            self.defaultsState.petQuietHoursEnd = clamped
+            self.userDefaults.set(clamped, forKey: "petQuietHoursEnd")
+        }
+    }
+
+    /// Display preference for usage values on the pet face.
+    /// Stored as a free-form string so older builds round-trip unknown
+    /// values; valid options today are "left", "used", "both".
+    var petUsageDisplay: String {
+        get { self.defaultsState.petUsageDisplayRaw }
+        set {
+            self.defaultsState.petUsageDisplayRaw = newValue
+            self.userDefaults.set(newValue, forKey: "petUsageDisplay")
+        }
+    }
+
+    /// Personality preset that flavours the pet's idle behaviour. Valid
+    /// options today are "calm", "playful", "focus".
+    var petPersonality: String {
+        get { self.defaultsState.petPersonalityRaw }
+        set {
+            self.defaultsState.petPersonalityRaw = newValue
+            self.userDefaults.set(newValue, forKey: "petPersonality")
+        }
+    }
 }
 
 extension SettingsStore {

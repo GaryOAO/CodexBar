@@ -372,7 +372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.preferencesSelection = dependencies.selection
         self.managedCodexAccountCoordinator = dependencies.managedCodexAccountCoordinator
         self.codexAccountPromotionCoordinator = dependencies.codexAccountPromotionCoordinator
-        self.petBridge = PetUsageBridge(store: dependencies.store)
+        self.petBridge = PetUsageBridge(store: dependencies.store, settings: dependencies.settings)
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -444,9 +444,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Periodically refresh the slow fields (5h%, week%, today_tokens,
         // epoch) so the pet's right-side dashboard isn't frozen between
-        // hook events. 5s strikes a balance between BLE airtime and how
-        // quickly numbers update visually.
-        self.petPushTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        // hook events. The interval is user-configurable in Preferences;
+        // we clamp to a sane window so a malformed value cannot starve or
+        // flood the BLE link.
+        let interval = max(1.0, min(60.0, self.settings?.petPushIntervalSeconds ?? 5.0))
+        self.petPushTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pushPetStatusPeriodic() }
         }
         // Push once immediately so the pet doesn't show zeros until the
