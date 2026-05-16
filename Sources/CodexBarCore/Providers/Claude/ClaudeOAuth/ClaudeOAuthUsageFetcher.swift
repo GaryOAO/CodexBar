@@ -62,6 +62,7 @@ enum ClaudeOAuthUsageFetcher {
 
         return "https://api.anthropic.com"
     }
+
     private static let usagePath = "/api/oauth/usage"
     private static let betaHeader = "oauth-2025-04-20"
     private static let fallbackClaudeCodeVersion = "2.1.0"

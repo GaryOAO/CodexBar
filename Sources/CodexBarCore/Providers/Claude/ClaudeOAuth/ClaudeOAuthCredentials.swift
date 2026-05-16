@@ -17,10 +17,10 @@ public enum ClaudeOAuthCredentialsStore {
     private static let cacheKey = KeychainCacheStore.Key.oauth(provider: .claude)
     public static let environmentTokenKey = "CODEXBAR_CLAUDE_OAUTH_TOKEN"
     public static let environmentScopesKey = "CODEXBAR_CLAUDE_OAUTH_SCOPES"
-    // When the usage endpoint is routed through a private OAuth proxy, the
-    // "access token" we send is actually a proxy API key. Users may prefer to
-    // paste it into the GUI instead of exporting a launchctl env var, so we
-    // also honour a UserDefaults-backed override.
+    /// When the usage endpoint is routed through a private OAuth proxy, the
+    /// "access token" we send is actually a proxy API key. Users may prefer to
+    /// paste it into the GUI instead of exporting a launchctl env var, so we
+    /// also honour a UserDefaults-backed override.
     public static let defaultsTokenKey = "claudeOAuthTokenOverride"
 
     // Claude CLI's OAuth client ID - this is a public identifier (not a secret).
