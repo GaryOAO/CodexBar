@@ -402,6 +402,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startHookReceiver() {
         guard self.hookReceiver == nil else { return }
+
+        // Keep the on-disk shim script in sync with our embedded source. The
+        // CLI side may already point at ~/.codexbar/bin/petbar-hook from a
+        // previous install — re-writing here picks up any schema or socket-
+        // path changes when CodexBar updates.
+        do {
+            try PetHookShim.ensureInstalled()
+        } catch {
+            self.hooksLogger.warning(
+                "could not refresh hook shim",
+                metadata: ["error": "\(error)"])
+        }
+
         let receiver = HookEventReceiver()
         do {
             try receiver.start()

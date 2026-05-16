@@ -11,6 +11,9 @@ struct AdvancedPane: View {
     @State private var claudeProxyProfiles: [ClaudeProxyProfile] = []
     @State private var claudeProxyActiveProfileID: UUID?
 
+    @State private var petHookStatus: String = ""
+    @State private var petHookBusy: Bool = false
+
     private var activeClaudeProxyProfile: ClaudeProxyProfile? {
         guard let id = self.claudeProxyActiveProfileID else { return self.claudeProxyProfiles.first }
         return self.claudeProxyProfiles.first(where: { $0.id == id }) ?? self.claudeProxyProfiles.first
@@ -150,6 +153,50 @@ struct AdvancedPane: View {
                 Divider()
 
                 SettingsSection(
+                    title: "Pet Hooks (CLI lifecycle bridge)",
+                    caption: """
+                    Forwards Claude Code and Codex CLI hook events \
+                    (SessionStart, PreToolUse, PostToolUse, Stop, \
+                    UserPromptSubmit) to CodexBar over a local Unix socket. \
+                    Used by the optional ESP32-S3 desktop pet to react in \
+                    real time to coding activity.
+                    """) {
+                        HStack(spacing: 8) {
+                            Button {
+                                self.runPetHookInstall()
+                            } label: {
+                                if self.petHookBusy {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Text("Install Pet Hooks")
+                                }
+                            }
+                            .disabled(self.petHookBusy)
+
+                            Button("Uninstall") {
+                                self.runPetHookUninstall()
+                            }
+                            .disabled(self.petHookBusy)
+
+                            Spacer()
+                        }
+                        if !self.petHookStatus.isEmpty {
+                            Text(self.petHookStatus)
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text(
+                                "Writes hook commands to ~/.claude/settings.json " +
+                                    "and ~/.codex/config.toml. Safe to run repeatedly.")
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+
+                Divider()
+
+                SettingsSection(
                     title: L("section_keychain_access"),
                     caption: L("keychain_access_caption"))
                 {
@@ -165,6 +212,50 @@ struct AdvancedPane: View {
         }
         .onAppear {
             self.reloadClaudeProxyProfiles()
+        }
+    }
+
+    private func runPetHookInstall() {
+        self.petHookBusy = true
+        Task.detached(priority: .userInitiated) {
+            let result: Result<PetHookInstaller.Report, Error>
+            do {
+                let report = try PetHookInstaller.install()
+                result = .success(report)
+            } catch {
+                result = .failure(error)
+            }
+            await MainActor.run {
+                self.petHookBusy = false
+                switch result {
+                case let .success(report):
+                    self.petHookStatus = report.notes.joined(separator: " · ")
+                case let .failure(error):
+                    self.petHookStatus = "Install failed: \(error)"
+                }
+            }
+        }
+    }
+
+    private func runPetHookUninstall() {
+        self.petHookBusy = true
+        Task.detached(priority: .userInitiated) {
+            let result: Result<PetHookInstaller.Report, Error>
+            do {
+                let report = try PetHookInstaller.uninstall()
+                result = .success(report)
+            } catch {
+                result = .failure(error)
+            }
+            await MainActor.run {
+                self.petHookBusy = false
+                switch result {
+                case let .success(report):
+                    self.petHookStatus = report.notes.joined(separator: " · ")
+                case let .failure(error):
+                    self.petHookStatus = "Uninstall failed: \(error)"
+                }
+            }
         }
     }
 }
