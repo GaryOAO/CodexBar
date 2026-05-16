@@ -9,6 +9,11 @@ enum UsagePaceText {
         let stage: UsagePace.Stage
     }
 
+    private enum DetailContext {
+        case session
+        case weekly
+    }
+
     static func weeklySummary(pace: UsagePace, now: Date = .init()) -> String {
         let detail = self.weeklyDetail(pace: pace, now: now)
         if let rightLabel = detail.rightLabel {
@@ -20,7 +25,7 @@ enum UsagePaceText {
     static func weeklyDetail(pace: UsagePace, now: Date = .init()) -> WeeklyDetail {
         WeeklyDetail(
             leftLabel: self.detailLeftLabel(for: pace),
-            rightLabel: self.detailRightLabel(for: pace, now: now),
+            rightLabel: self.detailRightLabel(for: pace, context: .weekly, now: now),
             expectedUsedPercent: pace.expectedUsedPercent,
             stage: pace.stage)
     }
@@ -37,13 +42,14 @@ enum UsagePaceText {
         }
     }
 
-    private static func detailRightLabel(for pace: UsagePace, now: Date) -> String? {
+    private static func detailRightLabel(for pace: UsagePace, context: DetailContext, now: Date) -> String? {
         let etaLabel: String?
         if pace.willLastToReset {
             etaLabel = "Lasts until reset"
         } else if let etaSeconds = pace.etaSeconds {
             let etaText = Self.durationText(seconds: etaSeconds, now: now)
-            etaLabel = etaText == "now" ? "Runs out now" : "Runs out in \(etaText)"
+            let prefix = context == .session ? "Projected empty" : "Runs out"
+            etaLabel = etaText == "now" ? "\(prefix) now" : "\(prefix) in \(etaText)"
         } else {
             etaLabel = nil
         }
@@ -69,5 +75,30 @@ enum UsagePaceText {
         let percent = probability.clamped(to: 0...1) * 100
         let rounded = (percent / 5).rounded() * 5
         return Int(rounded)
+    }
+
+    static func sessionPace(provider: UsageProvider, window: RateWindow, now: Date) -> UsagePace? {
+        guard provider == .codex || provider == .claude else { return nil }
+        guard window.remainingPercent > 0 else { return nil }
+        guard let pace = UsagePace.weekly(window: window, now: now, defaultWindowMinutes: 300) else { return nil }
+        guard pace.expectedUsedPercent >= 3 else { return nil }
+        return pace
+    }
+
+    static func sessionDetail(provider: UsageProvider, window: RateWindow, now: Date = .init()) -> WeeklyDetail? {
+        guard let pace = sessionPace(provider: provider, window: window, now: now) else { return nil }
+        return WeeklyDetail(
+            leftLabel: Self.detailLeftLabel(for: pace),
+            rightLabel: Self.detailRightLabel(for: pace, context: .session, now: now),
+            expectedUsedPercent: pace.expectedUsedPercent,
+            stage: pace.stage)
+    }
+
+    static func sessionSummary(provider: UsageProvider, window: RateWindow, now: Date = .init()) -> String? {
+        guard let detail = sessionDetail(provider: provider, window: window, now: now) else { return nil }
+        if let rightLabel = detail.rightLabel {
+            return "Pace: \(detail.leftLabel) · \(rightLabel)"
+        }
+        return "Pace: \(detail.leftLabel)"
     }
 }

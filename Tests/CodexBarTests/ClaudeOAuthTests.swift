@@ -12,7 +12,8 @@ struct ClaudeOAuthTests {
             "refreshToken": "test-refresh",
             "expiresAt": 4102444800000,
             "scopes": ["usage:read"],
-            "rateLimitTier": "default_claude_max_20x"
+            "rateLimitTier": "default_claude_max_20x",
+            "subscriptionType": "pro"
           }
         }
         """
@@ -21,6 +22,7 @@ struct ClaudeOAuthTests {
         #expect(creds.refreshToken == "test-refresh")
         #expect(creds.scopes == ["usage:read"])
         #expect(creds.rateLimitTier == "default_claude_max_20x")
+        #expect(creds.subscriptionType == "pro")
         #expect(creds.isExpired == false)
     }
 
@@ -82,6 +84,81 @@ struct ClaudeOAuthTests {
     }
 
     @Test
+    func `maps O auth subscription type when rate limit tier is generic`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 12.5, "resets_at": "2025-12-25T12:00:00.000Z" }
+        }
+        """
+        let snap = try ClaudeUsageFetcher._mapOAuthUsageForTesting(
+            Data(json.utf8),
+            rateLimitTier: "default_claude_ai",
+            subscriptionType: "pro")
+        #expect(snap.loginMethod == "Claude Pro")
+    }
+
+    @Test
+    func `maps O auth design and routines usage windows`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 12.5, "resets_at": "2025-12-25T12:00:00.000Z" },
+          "seven_day_design": { "utilization": 44, "resets_at": "2025-12-31T00:00:00.000Z" },
+          "seven_day_routines": { "utilization": 18, "resets_at": "2026-01-01T00:00:00.000Z" }
+        }
+        """
+        let snap = try ClaudeUsageFetcher._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.extraRateWindows.count == 2)
+        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-design" })?.title == "Designs")
+        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-design" })?.window.usedPercent == 44)
+        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-routines" })?.title == "Daily Routines")
+        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-routines" })?.window.usedPercent == 18)
+    }
+
+    @Test
+    func `maps O auth omelette and cowork usage windows`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 12.5, "resets_at": "2025-12-25T12:00:00.000Z" },
+          "seven_day_omelette": { "utilization": 29, "resets_at": "2025-12-31T00:00:00.000Z" },
+          "seven_day_cowork": { "utilization": 9, "resets_at": "2026-01-01T00:00:00.000Z" }
+        }
+        """
+        let snap = try ClaudeUsageFetcher._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.extraRateWindows.count == 2)
+        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-design" })?.window.usedPercent == 29)
+        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-routines" })?.window.usedPercent == 9)
+    }
+
+    @Test
+    func `maps O auth null cowork as zero routines window`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 12.5, "resets_at": "2025-12-25T12:00:00.000Z" },
+          "seven_day_omelette": { "utilization": 29, "resets_at": "2025-12-31T00:00:00.000Z" },
+          "seven_day_cowork": null
+        }
+        """
+        let snap = try ClaudeUsageFetcher._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-routines" })?.window.usedPercent == 0)
+    }
+
+    @Test
+    func `prefers populated alias over null alias in mixed payload`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 12.5, "resets_at": "2025-12-25T12:00:00.000Z" },
+          "seven_day_design": null,
+          "seven_day_omelette": { "utilization": 37, "resets_at": "2025-12-31T00:00:00.000Z" },
+          "seven_day_routines": null,
+          "seven_day_cowork": { "utilization": 14, "resets_at": "2026-01-01T00:00:00.000Z" }
+        }
+        """
+        let snap = try ClaudeUsageFetcher._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-design" })?.window.usedPercent == 37)
+        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-routines" })?.window.usedPercent == 14)
+    }
+
+    @Test
     func `maps O auth extra usage`() throws {
         // OAuth API returns values in cents (minor units), same as Web API.
         // The normalization always converts to dollars (major units).
@@ -118,6 +195,85 @@ struct ClaudeOAuthTests {
         #expect(snap.providerCost?.currencyCode == "USD")
         #expect(snap.providerCost?.limit == 20)
         #expect(snap.providerCost?.used == 5.2)
+    }
+
+    @Test
+    func `maps enterprise O auth spend limit without session windows`() throws {
+        let json = """
+        {
+          "extra_usage": {
+            "is_enabled": true,
+            "monthly_limit": 600,
+            "used_credits": 434.43,
+            "utilization": 72,
+            "currency": "USD"
+          }
+        }
+        """
+        let snap = try ClaudeUsageFetcher._mapOAuthUsageForTesting(
+            Data(json.utf8),
+            subscriptionType: "enterprise")
+        #expect(snap.loginMethod == "Claude Enterprise")
+        #expect(snap.primary.usedPercent == 72)
+        #expect(snap.primaryWindowKind == .spendLimit)
+        #expect(snap.primary.windowMinutes == nil)
+        #expect(snap.primary.resetDescription == "Spend limit: $434.43 / $600.00")
+        #expect(snap.secondary == nil)
+        #expect(snap.providerCost?.period == "Spend limit")
+        #expect(snap.providerCost?.limit == 600)
+        #expect(snap.providerCost?.used == 434.43)
+
+        let usage = ClaudeOAuthFetchStrategy._snapshotForTesting(from: snap)
+        #expect(usage.primary == nil)
+        #expect(usage.providerCost?.period == "Spend limit")
+        #expect(usage.providerCost?.used == 434.43)
+    }
+
+    @Test
+    func `maps O auth spend limit without plan metadata as major units`() throws {
+        let json = """
+        {
+          "extra_usage": {
+            "is_enabled": true,
+            "monthly_limit": 600,
+            "used_credits": 434.43,
+            "utilization": 72,
+            "currency": "USD"
+          }
+        }
+        """
+        let snap = try ClaudeUsageFetcher._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.loginMethod == nil)
+        #expect(snap.primaryWindowKind == .spendLimit)
+        #expect(snap.primary.usedPercent == 72)
+        #expect(snap.primary.resetDescription == "Spend limit: $434.43 / $600.00")
+        #expect(snap.providerCost?.period == "Spend limit")
+        #expect(snap.providerCost?.limit == 600)
+        #expect(snap.providerCost?.used == 434.43)
+    }
+
+    @Test
+    func `maps large enterprise O auth spend limit as major units`() throws {
+        let json = """
+        {
+          "extra_usage": {
+            "is_enabled": true,
+            "monthly_limit": 10000,
+            "used_credits": 1234.56,
+            "utilization": 12.3456,
+            "currency": "USD"
+          }
+        }
+        """
+        let snap = try ClaudeUsageFetcher._mapOAuthUsageForTesting(
+            Data(json.utf8),
+            subscriptionType: "enterprise")
+        #expect(snap.primaryWindowKind == .spendLimit)
+        #expect(snap.primary.usedPercent == 12.3456)
+        #expect(snap.primary.resetDescription == "Spend limit: $1,234.56 / $10,000.00")
+        #expect(snap.providerCost?.period == "Spend limit")
+        #expect(snap.providerCost?.limit == 10000)
+        #expect(snap.providerCost?.used == 1234.56)
     }
 
     @Test

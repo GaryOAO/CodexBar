@@ -10,9 +10,8 @@ private final class UsageHistoryMenuHostingView<Content: View>: NSHostingView<Co
 
 extension StatusItemController {
     @discardableResult
-    func addUsageHistoryMenuItemIfNeeded(to menu: NSMenu, provider: UsageProvider) -> Bool {
-        guard let submenu = self.makeUsageHistorySubmenu(provider: provider) else { return false }
-        let width: CGFloat = 310
+    func addUsageHistoryMenuItemIfNeeded(to menu: NSMenu, provider: UsageProvider, width: CGFloat) -> Bool {
+        guard let submenu = self.makeUsageHistorySubmenu(provider: provider, width: width) else { return false }
         let item = self.makeMenuCardItem(
             HStack(spacing: 0) {
                 Text("Subscription Utilization")
@@ -32,9 +31,15 @@ extension StatusItemController {
         return true
     }
 
-    private func makeUsageHistorySubmenu(provider: UsageProvider) -> NSMenu? {
+    private func makeUsageHistorySubmenu(provider: UsageProvider, width: CGFloat? = nil) -> NSMenu? {
         guard self.store.supportsPlanUtilizationHistory(for: provider) else { return nil }
         guard !self.store.shouldHidePlanUtilizationMenuItem(for: provider) else { return nil }
+        if let width {
+            return self.makeHostedSubviewPlaceholderMenu(
+                chartID: Self.usageHistoryChartID,
+                provider: provider,
+                width: width)
+        }
         return self.makeHostedSubviewPlaceholderMenu(chartID: Self.usageHistoryChartID, provider: provider)
     }
 
@@ -48,7 +53,7 @@ extension StatusItemController {
 
         if !Self.menuCardRenderingEnabled {
             let chartItem = NSMenuItem()
-            chartItem.isEnabled = false
+            chartItem.isEnabled = true
             chartItem.representedObject = Self.usageHistoryChartID
             submenu.addItem(chartItem)
             return true
@@ -66,7 +71,7 @@ extension StatusItemController {
 
         let chartItem = NSMenuItem()
         chartItem.view = hosting
-        chartItem.isEnabled = false
+        chartItem.isEnabled = true
         chartItem.representedObject = Self.usageHistoryChartID
         submenu.addItem(chartItem)
         return true

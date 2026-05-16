@@ -45,11 +45,20 @@ public struct OpenRouterKeyData: Decodable, Sendable {
     public let limit: Double?
     /// Current usage
     public let usage: Double?
+    /// API key usage for the current UTC day.
+    public let usageDaily: Double?
+    /// API key usage for the current UTC week.
+    public let usageWeekly: Double?
+    /// API key usage for the current UTC month.
+    public let usageMonthly: Double?
 
     private enum CodingKeys: String, CodingKey {
         case rateLimit = "rate_limit"
         case limit
         case usage
+        case usageDaily = "usage_daily"
+        case usageWeekly = "usage_weekly"
+        case usageMonthly = "usage_monthly"
     }
 }
 
@@ -59,6 +68,11 @@ public struct OpenRouterRateLimit: Codable, Sendable {
     public let requests: Int
     /// Interval for the rate limit (e.g., "10s", "1m")
     public let interval: String
+
+    public init(requests: Int, interval: String) {
+        self.requests = requests
+        self.interval = interval
+    }
 }
 
 public enum OpenRouterKeyQuotaStatus: String, Codable, Sendable {
@@ -76,6 +90,9 @@ public struct OpenRouterUsageSnapshot: Codable, Sendable {
     public let keyDataFetched: Bool
     public let keyLimit: Double?
     public let keyUsage: Double?
+    public let keyUsageDaily: Double?
+    public let keyUsageWeekly: Double?
+    public let keyUsageMonthly: Double?
     public let rateLimit: OpenRouterRateLimit?
     public let updatedAt: Date
 
@@ -87,6 +104,9 @@ public struct OpenRouterUsageSnapshot: Codable, Sendable {
         keyDataFetched: Bool = false,
         keyLimit: Double? = nil,
         keyUsage: Double? = nil,
+        keyUsageDaily: Double? = nil,
+        keyUsageWeekly: Double? = nil,
+        keyUsageMonthly: Double? = nil,
         rateLimit: OpenRouterRateLimit?,
         updatedAt: Date)
     {
@@ -94,9 +114,13 @@ public struct OpenRouterUsageSnapshot: Codable, Sendable {
         self.totalUsage = totalUsage
         self.balance = balance
         self.usedPercent = usedPercent
-        self.keyDataFetched = keyDataFetched || keyLimit != nil || keyUsage != nil
+        self.keyDataFetched = keyDataFetched || keyLimit != nil || keyUsage != nil ||
+            keyUsageDaily != nil || keyUsageWeekly != nil || keyUsageMonthly != nil
         self.keyLimit = keyLimit
         self.keyUsage = keyUsage
+        self.keyUsageDaily = keyUsageDaily
+        self.keyUsageWeekly = keyUsageWeekly
+        self.keyUsageMonthly = keyUsageMonthly
         self.rateLimit = rateLimit
         self.updatedAt = updatedAt
     }
@@ -252,6 +276,9 @@ public struct OpenRouterUsageFetcher: Sendable {
                 keyDataFetched: keyFetch.fetched,
                 keyLimit: keyFetch.data?.limit,
                 keyUsage: keyFetch.data?.usage,
+                keyUsageDaily: keyFetch.data?.usageDaily,
+                keyUsageWeekly: keyFetch.data?.usageWeekly,
+                keyUsageMonthly: keyFetch.data?.usageMonthly,
                 rateLimit: keyFetch.data?.rateLimit,
                 updatedAt: Date())
         } catch let error as DecodingError {

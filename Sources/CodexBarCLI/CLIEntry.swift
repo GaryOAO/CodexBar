@@ -1,8 +1,5 @@
 import CodexBarCore
 import Commander
-#if canImport(AppKit)
-import AppKit
-#endif
 #if canImport(Darwin)
 import Darwin
 #else
@@ -39,10 +36,16 @@ enum CodexBarCLI {
                 await self.runUsage(invocation.parsedValues)
             case ["cost"]:
                 await self.runCost(invocation.parsedValues)
+            case ["serve"]:
+                await self.runServe(invocation.parsedValues)
             case ["config", "validate"]:
                 self.runConfigValidate(invocation.parsedValues)
             case ["config", "dump"]:
                 self.runConfigDump(invocation.parsedValues)
+            case ["config", "set-api-key"]:
+                self.runConfigSetAPIKey(invocation.parsedValues)
+            case ["cache", "clear"]:
+                self.runCacheClear(invocation.parsedValues)
             default:
                 Self.exit(
                     code: .failure,
@@ -60,7 +63,10 @@ enum CodexBarCLI {
     private static func commandDescriptors() -> [CommandDescriptor] {
         let usageSignature = CommandSignature.describe(UsageOptions())
         let costSignature = CommandSignature.describe(CostOptions())
+        let serveSignature = CommandSignature.describe(ServeOptions())
         let configSignature = CommandSignature.describe(ConfigOptions())
+        let configSetAPIKeySignature = CommandSignature.describe(ConfigSetAPIKeyOptions())
+        let cacheSignature = CommandSignature.describe(CacheOptions())
 
         return [
             CommandDescriptor(
@@ -73,6 +79,11 @@ enum CodexBarCLI {
                 abstract: "Print local cost usage as text or JSON",
                 discussion: nil,
                 signature: costSignature),
+            CommandDescriptor(
+                name: "serve",
+                abstract: "Serve usage and cost JSON over localhost HTTP",
+                discussion: nil,
+                signature: serveSignature),
             CommandDescriptor(
                 name: "config",
                 abstract: "Config utilities",
@@ -89,8 +100,26 @@ enum CodexBarCLI {
                         abstract: "Print normalized config JSON",
                         discussion: nil,
                         signature: configSignature),
+                    CommandDescriptor(
+                        name: "set-api-key",
+                        abstract: "Store a provider API key",
+                        discussion: nil,
+                        signature: configSetAPIKeySignature),
                 ],
                 defaultSubcommandName: "validate"),
+            CommandDescriptor(
+                name: "cache",
+                abstract: "Cache management",
+                discussion: nil,
+                signature: CommandSignature(),
+                subcommands: [
+                    CommandDescriptor(
+                        name: "clear",
+                        abstract: "Clear cached data (cookies, cost, or all)",
+                        discussion: nil,
+                        signature: cacheSignature),
+                ],
+                defaultSubcommandName: "clear"),
         ]
     }
 

@@ -56,6 +56,10 @@ extension UsageStore {
             return ZaiSettingsError.missingToken.errorDescription
         case .openrouter:
             return OpenRouterSettingsError.missingToken.errorDescription
+        case .elevenlabs:
+            return ElevenLabsUsageError.missingCredentials.errorDescription
+        case .deepseek:
+            return DeepSeekUsageError.missingCredentials.errorDescription
         case .perplexity:
             return PerplexityAPIError.missingToken.errorDescription
         case .minimax:
@@ -81,7 +85,7 @@ extension UsageStore {
             return self.codexFetcher.loadAccountInfo()
         }
         let env = ProviderRegistry.makeEnvironment(
-            base: ProcessInfo.processInfo.environment,
+            base: self.environmentBase,
             provider: .codex,
             settings: self.settings,
             tokenOverride: nil)

@@ -196,6 +196,47 @@ struct ProviderSettingsFieldRowView: View {
                     }
                 }
             }
+
+            if let footer = self.field.footerText, !footer.isEmpty {
+                Text(footer)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+@MainActor
+struct ProviderSettingsActionsRowView: View {
+    let descriptor: ProviderSettingsActionsDescriptor
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(self.descriptor.title)
+                .font(.subheadline.weight(.semibold))
+
+            if !self.descriptor.subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(self.descriptor.subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            let actions = self.descriptor.actions.filter { $0.isVisible?() ?? true }
+            if !actions.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(actions) { action in
+                        Button(action.title) {
+                            Task { @MainActor in
+                                await action.perform()
+                            }
+                        }
+                        .applyProviderSettingsButtonStyle(action.style)
+                        .controlSize(.small)
+                    }
+                }
+            }
         }
     }
 }
@@ -205,11 +246,26 @@ struct ProviderSettingsTokenAccountsRowView: View {
     let descriptor: ProviderSettingsTokenAccountsDescriptor
     @State private var newLabel: String = ""
     @State private var newToken: String = ""
+    @State private var newOrgID: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(self.descriptor.title)
-                .font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(self.descriptor.title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                if let title = self.descriptor.primaryAddActionTitle,
+                   let action = self.descriptor.primaryAddAction
+                {
+                    Button(title) {
+                        Task { @MainActor in
+                            await action()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
 
             if !self.descriptor.subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(self.descriptor.subtitle)
@@ -224,46 +280,76 @@ struct ProviderSettingsTokenAccountsRowView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                let selectedIndex = min(self.descriptor.activeIndex(), max(0, accounts.count - 1))
-                Picker("", selection: Binding(
-                    get: { selectedIndex },
-                    set: { index in self.descriptor.setActiveIndex(index) }))
-                {
-                    ForEach(Array(accounts.enumerated()), id: \.offset) { index, account in
-                        Text(account.displayName).tag(index)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
+                        HStack(alignment: .center, spacing: 10) {
+                            Button {
+                                self.descriptor.setActiveIndex(index)
+                            } label: {
+                                HStack(alignment: .center, spacing: 8) {
+                                    Image(systemName: self.isActive(index: index, accountCount: accounts.count) ?
+                                        "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(self.isActive(index: index, accountCount: accounts.count) ?
+                                            Color.accentColor : Color.secondary)
+                                    Text(account.displayName)
+                                        .font(
+                                            .footnote.weight(
+                                                self.isActive(index: index, accountCount: accounts.count) ?
+                                                    .semibold : .regular))
+                                        .foregroundStyle(.primary)
+                                    Spacer(minLength: 0)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            Button("Remove") {
+                                self.descriptor.removeAccount(account.id)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                        if index < accounts.count - 1 {
+                            Divider()
+                        }
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .controlSize(.small)
-
-                Button("Remove selected account") {
-                    let account = accounts[selectedIndex]
-                    self.descriptor.removeAccount(account.id)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
 
-            HStack(spacing: 8) {
-                TextField("Label", text: self.$newLabel)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.footnote)
-                SecureField(self.descriptor.placeholder, text: self.$newToken)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.footnote)
-                Button("Add") {
-                    let label = self.newLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let token = self.newToken.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !label.isEmpty, !token.isEmpty else { return }
-                    self.descriptor.addAccount(label, token)
-                    self.newLabel = ""
-                    self.newToken = ""
+            if self.descriptor.primaryAddAction == nil {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        TextField("Label", text: self.$newLabel)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.footnote)
+                        SecureField(self.descriptor.placeholder, text: self.$newToken)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.footnote)
+                        Button("Add") {
+                            let label = self.newLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let token = self.newToken.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !label.isEmpty, !token.isEmpty else { return }
+                            let orgID = self.descriptor.showsOrganizationField
+                                ? self.newOrgID.trimmingCharacters(in: .whitespacesAndNewlines)
+                                : ""
+                            self.descriptor.addAccount(label, token, orgID.isEmpty ? nil : orgID)
+                            self.newLabel = ""
+                            self.newToken = ""
+                            self.newOrgID = ""
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(self.newLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                            self.newToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    if self.descriptor.showsOrganizationField {
+                        TextField("Org ID (optional)", text: self.$newOrgID)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.footnote)
+                            .help("Optional organization ID for accounts linked to multiple Anthropic organizations.")
+                    }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(self.newLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    self.newToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
             HStack(spacing: 10) {
@@ -280,6 +366,12 @@ struct ProviderSettingsTokenAccountsRowView: View {
             }
         }
     }
+
+    private func isActive(index: Int, accountCount: Int) -> Bool {
+        guard accountCount > 0 else { return false }
+        let selectedIndex = min(self.descriptor.activeIndex(), max(0, accountCount - 1))
+        return selectedIndex == index
+    }
 }
 
 extension View {
@@ -290,6 +382,82 @@ extension View {
             self.buttonStyle(.bordered)
         case .link:
             self.buttonStyle(.link)
+        }
+    }
+}
+
+@MainActor
+struct ProviderSettingsOrganizationsRowView: View {
+    let descriptor: ProviderSettingsOrganizationsDescriptor
+    @State private var errorMessage: String?
+    @State private var isRefreshing = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(self.descriptor.title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+            }
+
+            if let subtitle = self.descriptor.subtitle,
+               !subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            let entries = self.descriptor.entries()
+            if entries.allSatisfy(\.isLocked) {
+                Text("No organizations loaded. Click Refresh after setting your API key.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(entries) { entry in
+                        Toggle(isOn: Binding(
+                            get: { entry.isEnabled },
+                            set: { newValue in
+                                self.descriptor.onToggle(entry.id, newValue)
+                            })) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(entry.title)
+                                        .font(.footnote)
+                                    if let subtitle = entry.subtitle,
+                                       !subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    {
+                                        Text(subtitle)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                                .disabled(entry.isLocked)
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button("Refresh organizations") {
+                    Task { @MainActor in
+                        self.isRefreshing = true
+                        let result = await self.descriptor.onRefresh()
+                        self.isRefreshing = false
+                        self.errorMessage = result.success ? nil : result.errorMessage
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!self.descriptor.canRefresh() || self.isRefreshing)
+                if let errorMessage = self.errorMessage, !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
         }
     }
 }

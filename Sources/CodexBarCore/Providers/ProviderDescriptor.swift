@@ -54,6 +54,7 @@ public enum ProviderDescriptorRegistry {
     private static let store = Store()
     private static let descriptorsByID: [UsageProvider: ProviderDescriptor] = [
         .codex: CodexProviderDescriptor.descriptor,
+        .openai: OpenAIAPIProviderDescriptor.descriptor,
         .claude: ClaudeProviderDescriptor.descriptor,
         .cursor: CursorProviderDescriptor.descriptor,
         .opencode: OpenCodeProviderDescriptor.descriptor,
@@ -65,6 +66,7 @@ public enum ProviderDescriptorRegistry {
         .copilot: CopilotProviderDescriptor.descriptor,
         .zai: ZaiProviderDescriptor.descriptor,
         .minimax: MiniMaxProviderDescriptor.descriptor,
+        .manus: ManusProviderDescriptor.descriptor,
         .kimi: KimiProviderDescriptor.descriptor,
         .kilo: KiloProviderDescriptor.descriptor,
         .kiro: KiroProviderDescriptor.descriptor,
@@ -72,13 +74,27 @@ public enum ProviderDescriptorRegistry {
         .augment: AugmentProviderDescriptor.descriptor,
         .jetbrains: JetBrainsProviderDescriptor.descriptor,
         .kimik2: KimiK2ProviderDescriptor.descriptor,
+        .moonshot: MoonshotProviderDescriptor.descriptor,
         .amp: AmpProviderDescriptor.descriptor,
         .ollama: OllamaProviderDescriptor.descriptor,
         .synthetic: SyntheticProviderDescriptor.descriptor,
         .openrouter: OpenRouterProviderDescriptor.descriptor,
+        .elevenlabs: ElevenLabsProviderDescriptor.descriptor,
         .warp: WarpProviderDescriptor.descriptor,
+        .windsurf: WindsurfProviderDescriptor.descriptor,
         .perplexity: PerplexityProviderDescriptor.descriptor,
+        .mimo: MiMoProviderDescriptor.descriptor,
+        .doubao: DoubaoProviderDescriptor.descriptor,
         .abacus: AbacusProviderDescriptor.descriptor,
+        .mistral: MistralProviderDescriptor.descriptor,
+        .deepseek: DeepSeekProviderDescriptor.descriptor,
+        .codebuff: CodebuffProviderDescriptor.descriptor,
+        .crof: CrofProviderDescriptor.descriptor,
+        .venice: VeniceProviderDescriptor.descriptor,
+        .commandcode: CommandCodeProviderDescriptor.descriptor,
+        .stepfun: StepFunProviderDescriptor.descriptor,
+        .bedrock: BedrockProviderDescriptor.descriptor,
+        .grok: GrokProviderDescriptor.descriptor,
     ]
     private static let bootstrap: Void = {
         for provider in UsageProvider.allCases {

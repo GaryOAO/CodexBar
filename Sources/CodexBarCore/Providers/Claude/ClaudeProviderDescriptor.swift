@@ -24,6 +24,7 @@ public enum ClaudeProviderDescriptor {
                 browserCookieOrder: ProviderBrowserCookieDefaults.defaultImportOrder,
                 dashboardURL: "https://console.anthropic.com/settings/billing",
                 subscriptionDashboardURL: "https://claude.ai/settings/usage",
+                changelogURL: "https://github.com/anthropics/claude-code/releases",
                 statusPageURL: "https://status.claude.com/"),
             branding: ProviderBranding(
                 iconStyle: .claude,
@@ -33,7 +34,7 @@ public enum ClaudeProviderDescriptor {
                 supportsTokenCost: true,
                 noDataMessage: self.noDataMessage),
             fetchPlan: ProviderFetchPlan(
-                sourceModes: [.auto, .web, .cli, .oauth],
+                sourceModes: [.auto, .api, .web, .cli, .oauth],
                 pipeline: ProviderFetchPipeline(resolveStrategies: self.resolveStrategies)),
             cli: ProviderCLIConfig(
                 name: "claude",
@@ -43,7 +44,12 @@ public enum ClaudeProviderDescriptor {
     }
 
     private static func resolveStrategies(context: ProviderFetchContext) async -> [any ProviderFetchStrategy] {
-        guard context.sourceMode != .api else { return [] }
+        if context.sourceMode == .api || self.hasAutoAdminAPIKey(context: context) {
+            return [ClaudeAdminAPIFetchStrategy()]
+        }
+        if ClaudeAdminAPIFetchStrategy.isSelectedAdminAPIAccount(context: context) {
+            return [ClaudeAdminAPIFetchStrategy()]
+        }
 
         let planningInput = await Self.makePlanningInput(context: context)
         let plan = ClaudeSourcePlanner.resolve(input: planningInput)
@@ -51,6 +57,8 @@ public enum ClaudeProviderDescriptor {
 
         return plan.orderedSteps.map { step in
             let strategy: any ProviderFetchStrategy = switch step.dataSource {
+            case .api:
+                ClaudeAdminAPIFetchStrategy()
             case .oauth:
                 ClaudeOAuthFetchStrategy()
             case .web:
@@ -68,8 +76,14 @@ public enum ClaudeProviderDescriptor {
         }
     }
 
+    private static func hasAutoAdminAPIKey(context: ProviderFetchContext) -> Bool {
+        context.sourceMode == .auto && ClaudeAdminAPISettingsReader.apiKey(environment: context.env) != nil
+    }
+
     private static func makePlanningInput(context: ProviderFetchContext) async -> ClaudeSourcePlanningInput {
         let webExtrasEnabled = context.settings?.claude?.webExtrasEnabled ?? false
+        let needsOAuthAvailability = context.runtime == .app && context.sourceMode == .auto
+
         return ClaudeSourcePlanningInput(
             runtime: context.runtime,
             selectedDataSource: Self.sourceDataSource(from: context.sourceMode),
@@ -78,7 +92,7 @@ public enum ClaudeProviderDescriptor {
                 context: context,
                 browserDetection: context.browserDetection),
             hasCLI: ClaudeCLIResolver.isAvailable(environment: context.env),
-            hasOAuthCredentials: ClaudeOAuthPlanningAvailability.isAvailable(
+            hasOAuthCredentials: needsOAuthAvailability && ClaudeOAuthPlanningAvailability.isAvailable(
                 runtime: context.runtime,
                 sourceMode: context.sourceMode,
                 environment: context.env))
@@ -112,8 +126,10 @@ public enum ClaudeProviderDescriptor {
 
     private static func sourceDataSource(from mode: ProviderSourceMode) -> ClaudeUsageDataSource {
         switch mode {
-        case .auto, .api:
+        case .auto:
             .auto
+        case .api:
+            .api
         case .web:
             .web
         case .cli:
@@ -170,6 +186,49 @@ private struct ClaudePlannedFetchStrategy: ProviderFetchStrategy {
     }
 }
 
+struct ClaudeAdminAPIFetchStrategy: ProviderFetchStrategy {
+    let id: String = "claude.admin-api"
+    let kind: ProviderFetchKind = .apiToken
+    let usageFetcher: @Sendable (String) async throws -> ClaudeAdminAPIUsageSnapshot
+
+    init(
+        usageFetcher: @escaping @Sendable (String) async throws -> ClaudeAdminAPIUsageSnapshot = { apiKey in
+            try await ClaudeAdminAPIUsageFetcher.fetchUsage(apiKey: apiKey)
+        })
+    {
+        self.usageFetcher = usageFetcher
+    }
+
+    static func isSelectedAdminAPIAccount(context: ProviderFetchContext) -> Bool {
+        guard context.selectedTokenAccountID != nil else { return false }
+        return self.resolveToken(environment: context.env) != nil
+    }
+
+    func isAvailable(_ context: ProviderFetchContext) async -> Bool {
+        Self.resolveToken(environment: context.env) != nil
+    }
+
+    func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
+        guard let apiKey = Self.resolveToken(environment: context.env) else {
+            throw ClaudeAdminAPISettingsError.missingToken
+        }
+        let usage = try await self.usageFetcher(apiKey)
+        return self.makeResult(
+            usage: usage.toUsageSnapshot(),
+            sourceLabel: "admin-api")
+    }
+
+    func shouldFallback(on _: Error, context: ProviderFetchContext) -> Bool {
+        context.runtime == .app &&
+            context.sourceMode == .auto &&
+            !Self.isSelectedAdminAPIAccount(context: context)
+    }
+
+    private static func resolveToken(environment: [String: String]) -> String? {
+        ProviderTokenResolver.claudeAdminAPIToken(environment: environment)
+    }
+}
+
 struct ClaudeOAuthFetchStrategy: ProviderFetchStrategy {
     let id: String = "claude.oauth"
     let kind: ProviderFetchKind = .oauth
@@ -203,14 +262,6 @@ struct ClaudeOAuthFetchStrategy: ProviderFetchStrategy {
         sourceMode: ProviderSourceMode,
         environment: [String: String]) -> Bool
     {
-        let strategy = ClaudeOAuthFetchStrategy()
-        let nonInteractiveRecord = strategy.loadNonInteractiveCredentialRecord(environment: environment)
-        let nonInteractiveCredentials = nonInteractiveRecord?.credentials
-        let hasRequiredScopeWithoutPrompt = nonInteractiveCredentials?.scopes.contains("user:profile") == true
-        if hasRequiredScopeWithoutPrompt, nonInteractiveCredentials?.isExpired == false {
-            return true
-        }
-
         let envTokenEmpty = (environment[ClaudeOAuthCredentialsStore.environmentTokenKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ?? true)
@@ -222,11 +273,19 @@ struct ClaudeOAuthFetchStrategy: ProviderFetchStrategy {
             .trimmedToken
             .isEmpty ?? true)
         let hasEnvironmentOAuthToken = !(envTokenEmpty && defaultsTokenEmpty && profileTokenEmpty)
-        let claudeCLIAvailable = strategy.isClaudeCLIAvailable(environment: environment)
-
         if hasEnvironmentOAuthToken {
             return true
         }
+
+        let strategy = ClaudeOAuthFetchStrategy()
+        let nonInteractiveRecord = strategy.loadNonInteractiveCredentialRecord(environment: environment)
+        let nonInteractiveCredentials = nonInteractiveRecord?.credentials
+        let hasRequiredScopeWithoutPrompt = nonInteractiveCredentials?.scopes.contains("user:profile") == true
+        if hasRequiredScopeWithoutPrompt, nonInteractiveCredentials?.isExpired == false {
+            return true
+        }
+
+        let claudeCLIAvailable = strategy.isClaudeCLIAvailable(environment: environment)
 
         if let nonInteractiveRecord, hasRequiredScopeWithoutPrompt, nonInteractiveRecord.credentials.isExpired {
             switch nonInteractiveRecord.owner {
@@ -307,13 +366,19 @@ struct ClaudeOAuthFetchStrategy: ProviderFetchStrategy {
             accountEmail: usage.accountEmail,
             accountOrganization: usage.accountOrganization,
             loginMethod: usage.loginMethod)
+        let primary = usage.primaryWindowKind == .spendLimit ? nil : usage.primary
         return UsageSnapshot(
-            primary: usage.primary,
+            primary: primary,
             secondary: usage.secondary,
             tertiary: usage.opus,
+            extraRateWindows: usage.extraRateWindows.isEmpty ? nil : usage.extraRateWindows,
             providerCost: usage.providerCost,
             updatedAt: usage.updatedAt,
             identity: identity)
+    }
+
+    static func _snapshotForTesting(from usage: ClaudeUsageSnapshot) -> UsageSnapshot {
+        self.snapshot(from: usage)
     }
 }
 
@@ -331,7 +396,8 @@ struct ClaudeWebFetchStrategy: ProviderFetchStrategy {
             browserDetection: browserDetection,
             dataSource: .web,
             useWebExtras: false,
-            manualCookieHeader: Self.manualCookieHeader(from: context))
+            manualCookieHeader: Self.manualCookieHeader(from: context),
+            webOrganizationID: context.settings?.claude?.organizationID)
         let usage = try await fetcher.loadLatestUsage(model: "sonnet")
         return self.makeResult(
             usage: ClaudeOAuthFetchStrategy.snapshot(from: usage),
@@ -382,6 +448,7 @@ struct ClaudeCLIFetchStrategy: ProviderFetchStrategy {
             dataSource: .cli,
             useWebExtras: self.useWebExtras,
             manualCookieHeader: self.manualCookieHeader,
+            webOrganizationID: context.settings?.claude?.organizationID,
             keepCLISessionsAlive: keepAlive)
         let usage = try await fetcher.loadLatestUsage(model: "sonnet")
         return self.makeResult(

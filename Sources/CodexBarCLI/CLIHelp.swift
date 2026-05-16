@@ -71,6 +71,34 @@ extension CodexBarCLI {
         """
     }
 
+    static func serveHelp(version: String) -> String {
+        """
+        CodexBar \(version)
+
+        Usage:
+          codexbar serve [--port <port>] [--refresh-interval <seconds>]
+                         [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>]
+                         [-v|--verbose]
+
+        Description:
+          Start a foreground localhost-only HTTP server that exposes existing CLI JSON payloads.
+          The server binds to 127.0.0.1 only in this initial version.
+
+        Endpoints:
+          GET /health
+          GET /usage
+          GET /usage?provider=claude
+          GET /usage?provider=all
+          GET /cost
+          GET /cost?provider=codex
+
+        Examples:
+          codexbar serve
+          codexbar serve --port 8080 --refresh-interval 60
+          curl http://127.0.0.1:8080/usage?provider=all
+        """
+    }
+
     static func configHelp(version: String) -> String {
         """
         CodexBar \(version)
@@ -88,13 +116,46 @@ extension CodexBarCLI {
                              [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>]
                              [-v|--verbose]
                              [--pretty]
+          codexbar config set-api-key --provider <name> (--api-key <key>|--stdin)
+                                    [--no-enable]
+                                    [--format text|json] [--json] [--json-only] [--pretty]
 
         Description:
           Validate or print the CodexBar config file (default: validate).
+          set-api-key stores a provider API key in ~/.codexbar/config.json and enables that provider by default.
 
         Examples:
           codexbar config validate --format json --pretty
           codexbar config dump --pretty
+          printf '%s' "$ELEVENLABS_API_KEY" | codexbar config set-api-key --provider elevenlabs --stdin
+        """
+    }
+
+    static func cacheHelp(version: String) -> String {
+        """
+        CodexBar \(version)
+
+        Usage:
+          codexbar cache clear <--cookies|--cost|--all>
+                              [--provider <name>]
+                              [--format text|json]
+                              [--json]
+                              [--json-only]
+                              [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>]
+                              [-v|--verbose]
+                              [--pretty]
+
+        Description:
+          Clear cached data. Use --cookies to clear browser cookie caches (stored in Keychain),
+          --cost to clear cost usage scan caches, or --all for both.
+          Optionally specify --provider with --cookies to clear cookies for a single provider only.
+
+        Examples:
+          codexbar cache clear --cookies
+          codexbar cache clear --cookies --provider claude
+          codexbar cache clear --cost
+          codexbar cache clear --all
+          codexbar cache clear --all --format json --pretty
         """
     }
 
@@ -116,12 +177,16 @@ extension CodexBarCLI {
                        [--json-only]
                        [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>] [-v|--verbose]
                        [--provider \(ProviderHelp.list)] [--no-color] [--pretty] [--refresh]
+          codexbar serve [--port <port>] [--refresh-interval <seconds>]
+                       [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>] [-v|--verbose]
           codexbar config <validate|dump> [--format text|json]
                                         [--json]
                                         [--json-only]
                                         [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>]
                                         [-v|--verbose]
                                         [--pretty]
+          codexbar config set-api-key --provider <name> (--api-key <key>|--stdin)
+          codexbar cache clear <--cookies|--cost|--all> [--provider <name>]
 
         Global flags:
           -h, --help      Show help
@@ -137,7 +202,10 @@ extension CodexBarCLI {
           codexbar --provider all --json
           codexbar --provider gemini
           codexbar cost --provider claude --format json --pretty
+          codexbar serve --port 8080
           codexbar config validate --format json --pretty
+          codexbar config set-api-key --provider elevenlabs --stdin
+          codexbar cache clear --cookies
         """
     }
 }
