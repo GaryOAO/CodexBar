@@ -18,10 +18,14 @@ cd "$ROOT"
 
 HOST_ARCH=$(uname -m)
 export ARCHES="${ARCHES:-$HOST_ARCH}"
-export CODEXBAR_SIGNING="${CODEXBAR_SIGNING:-}"
+# Match the release workflow: ad-hoc signing, no Apple Developer ID required.
+# (Upstream's package_app.sh defaults to "Developer ID Application: Peter
+# Steinberger" which only exists on his machine. Override per env if you have
+# your own signing identity.)
+export CODEXBAR_SIGNING="${CODEXBAR_SIGNING:-adhoc}"
 unset CODEXBAR_FORCE_CLEAN
 
-echo "==> Building (arch=$ARCHES, incremental, signing=${CODEXBAR_SIGNING:-none})"
+echo "==> Building (arch=$ARCHES, incremental, signing=$CODEXBAR_SIGNING)"
 ./Scripts/package_app.sh release
 
 APP_SRC="$ROOT/CodexBar.app"
