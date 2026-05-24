@@ -1,5 +1,9 @@
-import Darwin
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Logging
 
 /// Listens on a Unix domain socket and emits one `HookEvent` per NDJSON line
@@ -13,7 +17,7 @@ import Logging
 ///   for await event in receiver.events { ... }
 ///   receiver.stop()       // also unlinks the socket file
 ///
-/// The socket is short and local; we use BSD sockets directly via Darwin
+/// The socket is short and local; we use POSIX sockets directly
 /// instead of Network.framework because NWListener's `.unix` endpoint has
 /// historically been fragile on macOS and the BSD path is ~40 lines.
 public final class HookEventReceiver: @unchecked Sendable {
@@ -63,7 +67,7 @@ public final class HookEventReceiver: @unchecked Sendable {
             }
             self.clientSources.removeAll()
             if self.listenFD >= 0 {
-                Darwin.close(self.listenFD)
+                PosixSocket.close(self.listenFD)
                 self.listenFD = -1
             }
             unlink(self.socketPath)
@@ -82,7 +86,7 @@ public final class HookEventReceiver: @unchecked Sendable {
         // Remove any stale socket left behind by a previous CodexBar process.
         unlink(self.socketPath)
 
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        let fd = PosixSocket.socket(AF_UNIX, PosixSocket.streamType, 0)
         guard fd >= 0 else {
             throw HookReceiverError.posix("socket()", errno)
         }
@@ -92,7 +96,7 @@ public final class HookEventReceiver: @unchecked Sendable {
         let pathBytes = self.socketPath.utf8CString
         let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
         guard pathBytes.count <= maxLen else {
-            Darwin.close(fd)
+            PosixSocket.close(fd)
             throw HookReceiverError.pathTooLong(self.socketPath)
         }
         withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
@@ -105,12 +109,12 @@ public final class HookEventReceiver: @unchecked Sendable {
 
         let bound = withUnsafePointer(to: &addr) { rawPtr in
             rawPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                Darwin.bind(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                PosixSocket.bind(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
         guard bound == 0 else {
             let saved = errno
-            Darwin.close(fd)
+            PosixSocket.close(fd)
             throw HookReceiverError.posix("bind()", saved)
         }
 
@@ -121,7 +125,7 @@ public final class HookEventReceiver: @unchecked Sendable {
 
         guard listen(fd, 16) == 0 else {
             let saved = errno
-            Darwin.close(fd)
+            PosixSocket.close(fd)
             unlink(self.socketPath)
             throw HookReceiverError.posix("listen()", saved)
         }
@@ -138,7 +142,7 @@ public final class HookEventReceiver: @unchecked Sendable {
     private func accept() {
         var clientAddr = sockaddr()
         var len = socklen_t(MemoryLayout<sockaddr>.size)
-        let clientFD = Darwin.accept(self.listenFD, &clientAddr, &len)
+        let clientFD = PosixSocket.accept(self.listenFD, &clientAddr, &len)
         guard clientFD >= 0 else { return }
         self.serve(clientFD: clientFD)
     }
@@ -177,7 +181,7 @@ public final class HookEventReceiver: @unchecked Sendable {
         }
 
         src.setCancelHandler {
-            Darwin.close(clientFD)
+            PosixSocket.close(clientFD)
         }
 
         self.clientSources.append(src)
@@ -197,6 +201,50 @@ public final class HookEventReceiver: @unchecked Sendable {
                 "tool": event.toolName ?? "-",
             ])
         self.continuation.yield(event)
+    }
+}
+
+private enum PosixSocket {
+    #if os(Linux)
+    static let streamType = Int32(SOCK_STREAM.rawValue)
+    #else
+    static let streamType = SOCK_STREAM
+    #endif
+
+    static func socket(_ domain: Int32, _ type: Int32, _ protocolValue: Int32) -> Int32 {
+        #if canImport(Darwin)
+        Darwin.socket(domain, type, protocolValue)
+        #else
+        Glibc.socket(domain, type, protocolValue)
+        #endif
+    }
+
+    static func bind(_ fd: Int32, _ address: UnsafePointer<sockaddr>, _ length: socklen_t) -> Int32 {
+        #if canImport(Darwin)
+        Darwin.bind(fd, address, length)
+        #else
+        Glibc.bind(fd, address, length)
+        #endif
+    }
+
+    static func accept(
+        _ fd: Int32,
+        _ address: UnsafeMutablePointer<sockaddr>,
+        _ length: UnsafeMutablePointer<socklen_t>) -> Int32
+    {
+        #if canImport(Darwin)
+        Darwin.accept(fd, address, length)
+        #else
+        Glibc.accept(fd, address, length)
+        #endif
+    }
+
+    static func close(_ fd: Int32) {
+        #if canImport(Darwin)
+        Darwin.close(fd)
+        #else
+        Glibc.close(fd)
+        #endif
     }
 }
 
