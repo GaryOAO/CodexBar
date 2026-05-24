@@ -188,6 +188,8 @@ public enum CodexOAuthFetchError: LocalizedError, Sendable {
 }
 
 public enum CodexOAuthUsageFetcher {
+    public static let usageBaseURLEnvKey = "CODEXBAR_CODEX_USAGE_BASE_URL"
+
     private static let defaultChatGPTBaseURL = "https://chatgpt.com/backend-api/"
     private static let chatGPTUsagePath = "/wham/usage"
     private static let codexUsagePath = "/api/codex/usage"
@@ -240,56 +242,132 @@ public enum CodexOAuthUsageFetcher {
 
     private static func resolveUsageURL(env: [String: String], configContents: String?) -> URL {
         let baseURL = self.resolveChatGPTBaseURL(env: env, configContents: configContents)
-        let normalized = self.normalizeChatGPTBaseURL(baseURL)
-        let path = normalized.contains("/backend-api") ? Self.chatGPTUsagePath : Self.codexUsagePath
-        let full = normalized + path
+        let full = self.resolveUsageURLString(baseURL: baseURL)
         return URL(string: full) ?? URL(string: Self.defaultChatGPTBaseURL + Self.chatGPTUsagePath)!
     }
 
     private static func resolveChatGPTBaseURL(env: [String: String], configContents: String?) -> String {
-        if let configContents, let parsed = self.parseChatGPTBaseURL(from: configContents) {
+        if let override = env[usageBaseURLEnvKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty
+        {
+            return override
+        }
+        if let configContents, let parsed = self.parseCodexBaseURL(from: configContents) {
             return parsed
         }
         if let contents = self.loadConfigContents(env: env),
-           let parsed = self.parseChatGPTBaseURL(from: contents)
+           let parsed = self.parseCodexBaseURL(from: contents)
         {
             return parsed
         }
         return Self.defaultChatGPTBaseURL
     }
 
-    private static func normalizeChatGPTBaseURL(_ value: String) -> String {
+    private static func resolveUsageURLString(baseURL: String) -> String {
+        let normalized = self.normalizeBaseURL(baseURL)
+        if normalized.hasPrefix("https://chatgpt.com") || normalized.hasPrefix("https://chat.openai.com") {
+            if normalized.contains("/backend-api") {
+                return normalized + Self.chatGPTUsagePath
+            }
+            return normalized + "/backend-api" + Self.chatGPTUsagePath
+        }
+        if normalized.hasPrefix("https://api.openai.com") {
+            return normalized + Self.codexUsagePath
+        }
+        if normalized.contains("/backend-api") {
+            return normalized + Self.chatGPTUsagePath
+        }
+        if normalized.hasSuffix("/v1") {
+            return String(normalized.dropLast(3)) + "/backend-api" + Self.chatGPTUsagePath
+        }
+        return normalized + "/backend-api" + Self.chatGPTUsagePath
+    }
+
+    private static func normalizeBaseURL(_ value: String) -> String {
         var trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { trimmed = Self.defaultChatGPTBaseURL }
         while trimmed.hasSuffix("/") {
             trimmed.removeLast()
         }
-        if trimmed.hasPrefix("https://chatgpt.com") || trimmed.hasPrefix("https://chat.openai.com"),
-           !trimmed.contains("/backend-api")
-        {
-            trimmed += "/backend-api"
-        }
         return trimmed
     }
 
-    private static func parseChatGPTBaseURL(from contents: String) -> String? {
+    private static func parseCodexBaseURL(from contents: String) -> String? {
+        var config = CodexCLIConfigBaseURLResolution()
+        var section = CodexCLIConfigSection.root
+
         for rawLine in contents.split(whereSeparator: \.isNewline) {
             let line = rawLine.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: true).first
             let trimmed = line?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !trimmed.isEmpty else { continue }
+
+            if trimmed.hasPrefix("["), trimmed.hasSuffix("]") {
+                section = self.parseCodexConfigSection(String(trimmed.dropFirst().dropLast()))
+                continue
+            }
+
             let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: true)
             guard parts.count == 2 else { continue }
             let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard key == "chatgpt_base_url" else { continue }
             var value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
             if value.hasPrefix("\""), value.hasSuffix("\"") {
                 value = String(value.dropFirst().dropLast())
             } else if value.hasPrefix("'"), value.hasSuffix("'") {
                 value = String(value.dropFirst().dropLast())
             }
-            return value.trimmingCharacters(in: .whitespacesAndNewlines)
+            value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+
+            switch section {
+            case .root:
+                if key == "chatgpt_base_url" {
+                    config.rootChatGPTBaseURL = value
+                } else if key == "model_provider" {
+                    config.rootModelProvider = value
+                } else if key == "profile" {
+                    config.activeProfile = value
+                }
+            case let .profile(name):
+                if key == "chatgpt_base_url" {
+                    config.profileChatGPTBaseURLs[name] = value
+                } else if key == "model_provider" {
+                    config.profileModelProviders[name] = value
+                }
+            case let .modelProvider(name):
+                if key == "base_url" {
+                    config.modelProviderBaseURLs[name] = value
+                }
+            case .other:
+                continue
+            }
         }
-        return nil
+
+        return config.resolvedBaseURL
+    }
+
+    private static func parseCodexConfigSection(_ raw: String) -> CodexCLIConfigSection {
+        let section = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if section.isEmpty {
+            return .root
+        }
+        let components = section
+            .split(separator: ".")
+            .map { component in
+                var value = component.trimmingCharacters(in: .whitespacesAndNewlines)
+                if value.hasPrefix("\""), value.hasSuffix("\"") {
+                    value = String(value.dropFirst().dropLast())
+                } else if value.hasPrefix("'"), value.hasSuffix("'") {
+                    value = String(value.dropFirst().dropLast())
+                }
+                return value
+            }
+        if components.count == 2, components[0] == "profiles" {
+            return .profile(components[1])
+        }
+        if components.count == 2, components[0] == "model_providers" {
+            return .modelProvider(components[1])
+        }
+        return .other
     }
 
     private static func loadConfigContents(env: [String: String]) -> String? {
@@ -299,6 +377,49 @@ public enum CodexOAuthUsageFetcher {
             .appendingPathComponent(".codex")
         let url = root.appendingPathComponent("config.toml")
         return try? String(contentsOf: url, encoding: .utf8)
+    }
+}
+
+private enum CodexCLIConfigSection: Equatable {
+    case root
+    case profile(String)
+    case modelProvider(String)
+    case other
+}
+
+private struct CodexCLIConfigBaseURLResolution {
+    var rootChatGPTBaseURL: String?
+    var rootModelProvider: String?
+    var activeProfile: String?
+    var profileChatGPTBaseURLs: [String: String] = [:]
+    var profileModelProviders: [String: String] = [:]
+    var modelProviderBaseURLs: [String: String] = [:]
+
+    var resolvedBaseURL: String? {
+        if let activeProfile {
+            if let value = self.profileChatGPTBaseURLs[activeProfile], !value.isEmpty {
+                return value
+            }
+            if let provider = self.profileModelProviders[activeProfile],
+               let value = self.modelProviderBaseURLs[provider],
+               !value.isEmpty
+            {
+                return value
+            }
+        }
+        if let value = self.rootChatGPTBaseURL, !value.isEmpty {
+            return value
+        }
+        if let provider = self.rootModelProvider,
+           let value = self.modelProviderBaseURLs[provider],
+           !value.isEmpty
+        {
+            return value
+        }
+        if self.modelProviderBaseURLs.count == 1 {
+            return self.modelProviderBaseURLs.values.first
+        }
+        return nil
     }
 }
 

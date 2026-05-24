@@ -704,4 +704,59 @@ struct CodexOAuthTests {
         let url = CodexOAuthUsageFetcher._resolveUsageURLForTesting(configContents: config)
         #expect(url.absoluteString == "https://chat.openai.com/backend-api/wham/usage")
     }
+
+    @Test
+    func `resolves codex usage URL from environment override`() {
+        let url = CodexOAuthUsageFetcher._resolveUsageURLForTesting(
+            env: [CodexOAuthUsageFetcher.usageBaseURLEnvKey: "http://10.95.82.114:8788/v1"],
+            configContents: "chatgpt_base_url = \"https://chatgpt.com\"\n")
+
+        #expect(url.absoluteString == "http://10.95.82.114:8788/backend-api/wham/usage")
+    }
+
+    @Test
+    func `resolves codex usage URL from active model provider`() {
+        let config = """
+        model_provider = "oauth_proxy"
+
+        [model_providers.oauth_proxy]
+        base_url = "https://claude-oauth.nothing2do.xyz/v1"
+        """
+        let url = CodexOAuthUsageFetcher._resolveUsageURLForTesting(configContents: config)
+
+        #expect(url.absoluteString == "https://claude-oauth.nothing2do.xyz/backend-api/wham/usage")
+    }
+
+    @Test
+    func `resolves codex usage URL from active profile model provider`() {
+        let config = """
+        profile = "proxy"
+
+        [profiles.proxy]
+        model_provider = "oauth_proxy"
+
+        [model_providers.oauth_proxy]
+        base_url = "http://10.95.82.114:8788/v1/"
+        """
+        let url = CodexOAuthUsageFetcher._resolveUsageURLForTesting(configContents: config)
+
+        #expect(url.absoluteString == "http://10.95.82.114:8788/backend-api/wham/usage")
+    }
+
+    @Test
+    func `profile chat GPT base URL overrides model provider`() {
+        let config = """
+        profile = "proxy"
+
+        [profiles.proxy]
+        chatgpt_base_url = "https://chatgpt.com/backend-api"
+        model_provider = "oauth_proxy"
+
+        [model_providers.oauth_proxy]
+        base_url = "http://10.95.82.114:8788/v1"
+        """
+        let url = CodexOAuthUsageFetcher._resolveUsageURLForTesting(configContents: config)
+
+        #expect(url.absoluteString == "https://chatgpt.com/backend-api/wham/usage")
+    }
 }
