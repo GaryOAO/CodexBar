@@ -73,4 +73,11 @@ jobs:
             launchctl setenv CODEXBAR_CLAUDE_OAUTH_TOKEN '<PROXY_API_KEY>'
             ```
 
+            Codex usage can be routed through the same proxy style:
+
+            ```bash
+            launchctl setenv CODEXBAR_CODEX_USAGE_BASE_URL https://<your-proxy-domain>
+            launchctl setenv CODEXBAR_CODEX_OAUTH_TOKEN '<PROXY_API_KEY>'
+            ```
+
             Then fully quit and relaunch CodexBar.
