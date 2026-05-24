@@ -1,5 +1,9 @@
-import Darwin
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Logging
 
 /// Manages the petbar-hook shim script that CLI hooks invoke as their
