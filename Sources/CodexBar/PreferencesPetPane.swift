@@ -122,7 +122,8 @@ struct PetPane: View {
                             .disabled(!self.settings.petEnabled)
 
                             Text(
-                                "ClawdPet 通常不会出现在系统蓝牙设备列表；这里显示“已连接”才是准确信号。若系统没有弹出权限，请允许 CodexBar 或 CodexBar BLE Helper 使用蓝牙。")
+                                "ClawdPet 通常不会出现在系统蓝牙设备列表；这里显示“已连接”才是准确信号。"
+                                    + "若系统没有弹出权限，请允许 CodexBar 或 CodexBar BLE Helper 使用蓝牙。")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                             Spacer()
