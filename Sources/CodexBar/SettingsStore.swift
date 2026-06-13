@@ -158,6 +158,8 @@ enum PetPersonality: String, CaseIterable, Identifiable {
         case .focus: 2
         }
     }
+}
+
 struct CachedCodexAccountReconciliationSnapshot {
     let activeSource: CodexActiveSource
     let loadedAt: Date
