@@ -420,7 +420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         self.statusController?.prepareForAppShutdown()
         self.confettiOverlayController.dismiss()
-        TTYCommandRunner.terminateActiveProcessesForAppShutdown()
+        self.terminateActiveProcessesForAppShutdown()
         self.stopPetRuntime()
     }
 
