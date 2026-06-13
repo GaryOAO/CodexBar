@@ -454,6 +454,7 @@
 
 /* Tab titles */
 "tab_general" = "Genel";
+"tab_pet" = "Masaüstü Maskotu";
 "tab_providers" = "Sağlayıcılar";
 "tab_display" = "Görünüm";
 "tab_advanced" = "Gelişmiş";

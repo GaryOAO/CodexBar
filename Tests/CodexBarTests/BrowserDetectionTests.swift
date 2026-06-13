@@ -100,6 +100,12 @@ struct BrowserDetectionTests {
     func `keychain interaction suppresses chromium cookie source during cooldown`() {
         BrowserCookieAccessGate.resetForTesting()
         defer { BrowserCookieAccessGate.resetForTesting() }
+        // Fork local-patch gates keychain cookie import behind an opt-in (default OFF), which
+        // would short-circuit shouldAttempt before the keychain-preflight logic under test.
+        // Enable it for the duration of these keychain tests, scoped + restored so the opt-in
+        // default-OFF behavior other tests rely on is untouched.
+        UserDefaults.standard.set(true, forKey: BrowserCookieAccessGate.manualOptInDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: BrowserCookieAccessGate.manualOptInDefaultsKey) }
 
         let start = Date(timeIntervalSince1970: 1000)
         var preflightCount = 0
@@ -133,6 +139,12 @@ struct BrowserDetectionTests {
     func `background cookie import allows authorized chromium keychain sources`() {
         BrowserCookieAccessGate.resetForTesting()
         defer { BrowserCookieAccessGate.resetForTesting() }
+        // Fork local-patch gates keychain cookie import behind an opt-in (default OFF), which
+        // would short-circuit shouldAttempt before the keychain-preflight logic under test.
+        // Enable it for the duration of these keychain tests, scoped + restored so the opt-in
+        // default-OFF behavior other tests rely on is untouched.
+        UserDefaults.standard.set(true, forKey: BrowserCookieAccessGate.manualOptInDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: BrowserCookieAccessGate.manualOptInDefaultsKey) }
 
         var preflightCount = 0
 
@@ -155,6 +167,12 @@ struct BrowserDetectionTests {
     func `background cookie import suppresses chromium keychain sources requiring interaction`() {
         BrowserCookieAccessGate.resetForTesting()
         defer { BrowserCookieAccessGate.resetForTesting() }
+        // Fork local-patch gates keychain cookie import behind an opt-in (default OFF), which
+        // would short-circuit shouldAttempt before the keychain-preflight logic under test.
+        // Enable it for the duration of these keychain tests, scoped + restored so the opt-in
+        // default-OFF behavior other tests rely on is untouched.
+        UserDefaults.standard.set(true, forKey: BrowserCookieAccessGate.manualOptInDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: BrowserCookieAccessGate.manualOptInDefaultsKey) }
 
         var preflightCount = 0
 
