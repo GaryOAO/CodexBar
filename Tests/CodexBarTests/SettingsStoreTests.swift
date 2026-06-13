@@ -1035,6 +1035,34 @@ struct SettingsStoreTests {
     }
 
     @Test
+    func `menu observation token ignores merged switcher selection churn`() async throws {
+        let suite = "SettingsStoreTests-observation-switcher-selection"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+
+        let store = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+
+        let didChange = ObservationFlag()
+
+        withObservationTracking {
+            _ = store.menuObservationToken
+        } onChange: {
+            didChange.set()
+        }
+
+        store.selectedMenuProvider = .claude
+        store.mergedMenuLastSelectedWasOverview.toggle()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(didChange.get() == false)
+    }
+
+    @Test
     func `menu observation token updates on per-window quota threshold changes`() async throws {
         let suite = "SettingsStoreTests-observation-quota-threshold-windows"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -1066,6 +1094,33 @@ struct SettingsStoreTests {
 
         await expectObservation(for: .session, thresholds: [70, 30])
         await expectObservation(for: .weekly, thresholds: [80, 40])
+    }
+
+    @Test
+    func `menu observation token updates on weekly progress work days changes`() async throws {
+        let suite = "SettingsStoreTests-observation-weekly-progress-work-days"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+
+        let store = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+
+        let didChange = ObservationFlag()
+
+        withObservationTracking {
+            _ = store.menuObservationToken
+        } onChange: {
+            didChange.set()
+        }
+
+        store.weeklyProgressWorkDays = 5
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(didChange.get() == true)
     }
 
     @Test
@@ -1158,50 +1213,9 @@ struct SettingsStoreTests {
             zaiTokenStore: NoopZaiTokenStore(),
             syntheticTokenStore: NoopSyntheticTokenStore())
 
-        #expect(storeA.orderedProviders() == [
-            .gemini,
-            .codex,
-            .openai,
-            .claude,
-            .cursor,
-            .opencode,
-            .opencodego,
-            .alibaba,
-            .factory,
-            .antigravity,
-            .copilot,
-            .zai,
-            .minimax,
-            .manus,
-            .kimi,
-            .kilo,
-            .kiro,
-            .vertexai,
-            .augment,
-            .jetbrains,
-            .kimik2,
-            .moonshot,
-            .amp,
-            .ollama,
-            .synthetic,
-            .warp,
-            .openrouter,
-            .elevenlabs,
-            .windsurf,
-            .perplexity,
-            .mimo,
-            .doubao,
-            .abacus,
-            .mistral,
-            .deepseek,
-            .codebuff,
-            .crof,
-            .venice,
-            .commandcode,
-            .stepfun,
-            .bedrock,
-            .grok,
-        ])
+        let legacyOrder: [UsageProvider] = [.gemini, .codex]
+        let appendedProviders = UsageProvider.allCases.filter { !legacyOrder.contains($0) }
+        #expect(storeA.orderedProviders() == legacyOrder + appendedProviders)
 
         // Move one provider; ensure it's persisted across instances.
         let antigravityIndex = try #require(storeA.orderedProviders().firstIndex(of: .antigravity))

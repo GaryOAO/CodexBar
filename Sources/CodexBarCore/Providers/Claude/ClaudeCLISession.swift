@@ -156,6 +156,7 @@ actor ClaudeCLISession {
 
         var buffer = Data()
         var scanTailText = ""
+        var normalizedScan = ""
         var utf8Carry = Data()
         let deadline = Date().addingTimeInterval(timeout)
         var lastOutputAt = Date()
@@ -172,27 +173,26 @@ actor ClaudeCLISession {
                 lastOutputAt = Date()
                 Self.appendScanText(newData: newData, scanTailText: &scanTailText, utf8Carry: &utf8Carry)
                 if scanTailText.count > 8192 { scanTailText = String(scanTailText.suffix(8192)) }
-            }
+                normalizedScan = Self.normalizedNeedle(TextParsing.stripANSICodes(scanTailText))
 
-            let scanData = scanBuffer.append(newData)
-            if !scanData.isEmpty,
-               scanData.range(of: cursorQuery) != nil
-            {
-                try? self.send("\u{1b}[1;1R")
-            }
-
-            let normalizedScan = Self.normalizedNeedle(TextParsing.stripANSICodes(scanTailText))
-
-            for item in sendNeedles where !triggeredSends.contains(item.needle) {
-                if normalizedScan.contains(item.needle) {
-                    try? self.send(item.keys)
-                    triggeredSends.insert(item.needle)
+                let scanData = scanBuffer.append(newData)
+                if scanData.range(of: cursorQuery) != nil {
+                    try? self.send("\u{1b}[1;1R")
                 }
-            }
 
-            if stopNeedles.contains(where: normalizedScan.contains) || (stopWhenNormalized?(normalizedScan) == true) {
-                stoppedEarly = true
-                break
+                for item in sendNeedles where !triggeredSends.contains(item.needle) {
+                    if normalizedScan.contains(item.needle) {
+                        try? self.send(item.keys)
+                        triggeredSends.insert(item.needle)
+                    }
+                }
+
+                if stopNeedles
+                    .contains(where: normalizedScan.contains) || (stopWhenNormalized?(normalizedScan) == true)
+                {
+                    stoppedEarly = true
+                    break
+                }
             }
 
             if self.shouldStopForIdleTimeout(
@@ -298,12 +298,18 @@ actor ClaudeCLISession {
         proc.standardOutput = secondaryHandle
         proc.standardError = secondaryHandle
 
-        let workingDirectory = ClaudeStatusProbe.probeWorkingDirectoryURL()
+        let workingDirectory = ClaudeStatusProbe.preparedProbeWorkingDirectoryURL()
         proc.currentDirectoryURL = workingDirectory
-        var env = TTYCommandRunner.enrichedEnvironment()
-        env = Self.scrubbedClaudeEnvironment(from: env)
+        var env = Self.launchEnvironment()
         env["PWD"] = workingDirectory.path
         proc.environment = env
+
+        guard TTYCommandRunner.beginActiveProcessLaunchForAppShutdown() else {
+            try? primaryHandle.close()
+            try? secondaryHandle.close()
+            throw SessionError.launchFailed("App shutdown in progress")
+        }
+        defer { TTYCommandRunner.endActiveProcessLaunchForAppShutdown() }
 
         do {
             try proc.run()
@@ -344,6 +350,10 @@ actor ClaudeCLISession {
         self.startedAt = Date()
     }
 
+    static func launchEnvironment(baseEnv: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+        self.scrubbedClaudeEnvironment(from: TTYCommandRunner.enrichedEnvironment(baseEnv: baseEnv))
+    }
+
     private static func scrubbedClaudeEnvironment(from base: [String: String]) -> [String: String] {
         var env = base
         let explicitKeys: [String] = [
@@ -369,11 +379,16 @@ actor ClaudeCLISession {
         try? self.primaryHandle?.close()
         try? self.secondaryHandle?.close()
 
+        let descendants = self.process.map { TTYProcessTreeTerminator.descendantPIDs(of: $0.processIdentifier) } ?? []
         if let proc = self.process, proc.isRunning {
             proc.terminate()
         }
-        if let pgid = self.processGroup {
-            kill(-pgid, SIGTERM)
+        if let proc = self.process {
+            TTYProcessTreeTerminator.terminateProcessTree(
+                rootPID: proc.processIdentifier,
+                processGroup: self.processGroup,
+                signal: SIGTERM,
+                knownDescendants: descendants)
         }
         let waitDeadline = Date().addingTimeInterval(1.0)
         if let proc = self.process {
@@ -381,10 +396,15 @@ actor ClaudeCLISession {
                 usleep(100_000)
             }
             if proc.isRunning {
-                if let pgid = self.processGroup {
-                    kill(-pgid, SIGKILL)
+                TTYProcessTreeTerminator.terminateProcessTree(
+                    rootPID: proc.processIdentifier,
+                    processGroup: self.processGroup,
+                    signal: SIGKILL,
+                    knownDescendants: descendants)
+            } else {
+                for pid in descendants where pid > 0 {
+                    kill(pid, SIGKILL)
                 }
-                kill(proc.processIdentifier, SIGKILL)
             }
             TTYCommandRunner.unregisterActiveProcessForAppShutdown(pid: proc.processIdentifier)
         }

@@ -6,8 +6,23 @@ public enum ProviderConfigEnvironment {
         provider: UsageProvider,
         config: ProviderConfig?) -> [String: String]
     {
+        if provider == .openai {
+            return self.applyOpenAIOverrides(base: base, config: config)
+        }
         if provider == .bedrock {
             return self.applyBedrockOverrides(base: base, config: config)
+        }
+        if provider == .deepgram {
+            return self.applyDeepgramOverrides(base: base, config: config)
+        }
+        if provider == .llmproxy {
+            return self.applyLLMProxyOverrides(base: base, config: config)
+        }
+        if provider == .azureopenai {
+            return self.applyAzureOpenAIOverrides(base: base, config: config)
+        }
+        if provider == .kimi {
+            return self.applyKimiOverrides(base: base, config: config)
         }
         guard let apiKey = config?.sanitizedAPIKey, !apiKey.isEmpty else { return base }
         var env = base
@@ -55,6 +70,8 @@ public enum ProviderConfigEnvironment {
         switch provider {
         case .copilot, .kimik2, .warp, .codebuff, .crof, .doubao:
             return true
+        case .azureopenai:
+            return true
         default:
             return false
         }
@@ -62,8 +79,12 @@ public enum ProviderConfigEnvironment {
 
     private static func directAPIKeyEnvironmentKey(for provider: UsageProvider) -> String? {
         switch provider {
+        case .amp:
+            AmpSettingsReader.apiTokenKey
         case .openai:
             OpenAIAPISettingsReader.adminAPIKeyEnvironmentKey
+        case .azureopenai:
+            AzureOpenAISettingsReader.apiKeyEnvironmentKey
         case .claude:
             ClaudeAdminAPISettingsReader.adminAPIKeyEnvironmentKey
         case .zai:
@@ -82,11 +103,36 @@ public enum ProviderConfigEnvironment {
             ElevenLabsSettingsReader.apiKeyEnvironmentKey
         case .moonshot:
             MoonshotSettingsReader.apiKeyEnvironmentKeys.first
+        case .kimi:
+            KimiSettingsReader.apiKeyEnvironmentKeys.first
+        case .ollama:
+            OllamaAPISettingsReader.apiKeyEnvironmentKeys.first
         case .venice:
             VeniceSettingsReader.apiKeyEnvironmentKey
+        case .deepgram:
+            DeepgramSettingsReader.apiKeyEnvironmentKey
+        case .groq:
+            GroqSettingsReader.apiKeyEnvironmentKey
+        case .llmproxy:
+            LLMProxySettingsReader.apiKeyEnvironmentKey
         default:
             nil
         }
+    }
+
+    private static func applyOpenAIOverrides(
+        base: [String: String],
+        config: ProviderConfig?) -> [String: String]
+    {
+        guard let config else { return base }
+        var env = base
+        if let apiKey = config.sanitizedAPIKey {
+            env[OpenAIAPISettingsReader.adminAPIKeyEnvironmentKey] = apiKey
+        }
+        if let projectID = config.sanitizedWorkspaceID {
+            env[OpenAIAPISettingsReader.projectIDEnvironmentKey] = projectID
+        }
+        return env
     }
 
     private static func applyBedrockOverrides(
@@ -95,15 +141,130 @@ public enum ProviderConfigEnvironment {
     {
         guard let config else { return base }
         var env = base
-        if let accessKeyID = config.sanitizedAPIKey {
-            env[BedrockSettingsReader.accessKeyIDKey] = accessKeyID
+
+        // Only project an explicit auth-mode selection. When the config does not
+        // specify one, leave the base environment untouched so an env-driven setup
+        // (AWS_PROFILE or CODEXBAR_BEDROCK_AUTH_MODE from the launch environment) is
+        // still inferred by BedrockSettingsReader instead of being forced to `keys`.
+        let configMode = config.sanitizedAWSAuthMode.flatMap(BedrockAuthMode.init(rawValue:))
+        if let configMode {
+            env[BedrockSettingsReader.authModeKey] = configMode.rawValue
         }
-        if let secretAccessKey = config.sanitizedSecretKey {
-            env[BedrockSettingsReader.secretAccessKeyKey] = secretAccessKey
+        let baseMode = BedrockSettingsReader
+            .cleaned(base[BedrockSettingsReader.authModeKey])
+            .flatMap { BedrockAuthMode(rawValue: $0.lowercased()) }
+
+        let mergedAccessKey = config.sanitizedAPIKey ?? BedrockSettingsReader.accessKeyID(environment: base)
+        let mergedSecretKey = config.sanitizedSecretKey ?? BedrockSettingsReader.secretAccessKey(environment: base)
+        let hasMergedStaticKeys = mergedAccessKey != nil && mergedSecretKey != nil
+        let effectiveMode: BedrockAuthMode = if let configMode {
+            configMode
+        } else if let baseMode {
+            baseMode
+        } else if hasMergedStaticKeys {
+            // Upgrade path: a config saved before auth modes existed keeps using
+            // static credentials (including env+config layering) even if AWS_PROFILE
+            // is present in the base environment, so existing users are never
+            // silently switched to a profile/account.
+            .keys
+        } else {
+            BedrockSettingsReader.authMode(environment: base)
         }
+
+        switch effectiveMode {
+        case .profile:
+            if let profile = config.sanitizedAWSProfile {
+                env[BedrockSettingsReader.profileKey] = profile
+            }
+        case .keys:
+            if let accessKeyID = config.sanitizedAPIKey {
+                env[BedrockSettingsReader.accessKeyIDKey] = accessKeyID
+            }
+            if let secretAccessKey = config.sanitizedSecretKey {
+                env[BedrockSettingsReader.secretAccessKeyKey] = secretAccessKey
+            }
+        }
+
         if let region = config.sanitizedRegion {
             env[BedrockSettingsReader.regionKeys[0]] = region
         }
+
         return env
+    }
+
+    private static func applyDeepgramOverrides(
+        base: [String: String],
+        config: ProviderConfig?) -> [String: String]
+    {
+        guard let config else { return base }
+
+        var env = base
+
+        if let apiKey = config.sanitizedAPIKey {
+            env[DeepgramSettingsReader.apiKeyEnvironmentKey] = apiKey
+        }
+
+        if let projectID = config.sanitizedWorkspaceID {
+            env[DeepgramSettingsReader.projectIDEnvironmentKey] = projectID
+        }
+
+        return env
+    }
+
+    private static func applyLLMProxyOverrides(
+        base: [String: String],
+        config: ProviderConfig?) -> [String: String]
+    {
+        var env = base
+        if let apiKey = config?.sanitizedAPIKey {
+            env[LLMProxySettingsReader.apiKeyEnvironmentKey] = apiKey
+        }
+        if let baseURL = config?.sanitizedEnterpriseHost {
+            env[LLMProxySettingsReader.baseURLEnvironmentKey] = baseURL
+        }
+        return env
+    }
+
+    private static func applyKimiOverrides(
+        base: [String: String],
+        config: ProviderConfig?) -> [String: String]
+    {
+        guard let config else { return base }
+        var env = base
+        if let apiKey = config.sanitizedAPIKey,
+           let key = KimiSettingsReader.apiKeyEnvironmentKeys.first
+        {
+            env[key] = apiKey
+        }
+        if let baseURL = config.sanitizedEnterpriseHost {
+            env[KimiSettingsReader.codeAPIBaseURLEnvironmentKey] = baseURL
+        }
+        return env
+    }
+
+    private static func applyAzureOpenAIOverrides(
+        base: [String: String],
+        config: ProviderConfig?) -> [String: String]
+    {
+        guard let config else { return base }
+        var env = base
+        if let apiKey = config.sanitizedAPIKey {
+            env[AzureOpenAISettingsReader.apiKeyEnvironmentKey] = apiKey
+        }
+        if let endpoint = config.sanitizedEnterpriseHost {
+            env[AzureOpenAISettingsReader.endpointEnvironmentKey] = endpoint
+        }
+        if let deploymentName = config.sanitizedWorkspaceID {
+            env[AzureOpenAISettingsReader.deploymentNameEnvironmentKey] = deploymentName
+        }
+        return env
+    }
+
+    public static func applyProviderConfigOverrides(
+        base: [String: String],
+        provider: UsageProvider,
+        config: ProviderConfig?) -> [String: String]
+    {
+        self.applyAPIKeyOverride(base: base, provider: provider, config: config)
     }
 }

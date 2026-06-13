@@ -14,9 +14,15 @@ struct UsageCommandContext {
     let useColor: Bool
     let resetStyle: ResetTimeDisplayStyle
     let jsonOnly: Bool
+    let includeAllCodexAccounts: Bool
     let fetcher: UsageFetcher
     let claudeFetcher: ClaudeUsageFetcher
     let browserDetection: BrowserDetection
+    /// True for long-lived hosts (`codexbar serve`) that keep warm provider
+    /// helper sessions (such as the managed Antigravity `agy` process) alive
+    /// between fetches instead of resetting after each one-shot fetch.
+    var persistCLISessions: Bool = false
+    var persistentCLISessionIdleWindow: TimeInterval?
 }
 
 struct UsageCommandOutput {
@@ -85,7 +91,11 @@ extension CodexBarCLI {
                     output: output,
                     kind: .args)
             }
-            guard TokenAccountSupportCatalog.support(for: providerList[0]) != nil else {
+            let supportsAllCodexAccounts = providerList[0] == .codex
+                && tokenSelection.allAccounts
+                && tokenSelection.label == nil
+                && tokenSelection.index == nil
+            guard supportsAllCodexAccounts || TokenAccountSupportCatalog.support(for: providerList[0]) != nil else {
                 Self.exit(
                     code: .failure,
                     message: "Error: \(providerList[0].rawValue) does not support token accounts.",
@@ -93,21 +103,6 @@ extension CodexBarCLI {
                     kind: .args)
             }
         }
-
-        #if !os(macOS)
-        if let parsedSourceMode {
-            let requiresWeb = providerList.contains { selectedProvider in
-                Self.sourceModeRequiresWebSupport(parsedSourceMode, provider: selectedProvider)
-            }
-            if requiresWeb {
-                Self.exit(
-                    code: .failure,
-                    message: "Error: selected source requires web support and is only supported on macOS.",
-                    output: output,
-                    kind: .runtime)
-            }
-        }
-        #endif
 
         let browserDetection = BrowserDetection()
         let fetcher = UsageFetcher()
@@ -137,6 +132,7 @@ extension CodexBarCLI {
             useColor: useColor,
             resetStyle: resetStyle,
             jsonOnly: output.jsonOnly,
+            includeAllCodexAccounts: tokenSelection.allAccounts && providerList == [.codex],
             fetcher: fetcher,
             claudeFetcher: claudeFetcher,
             browserDetection: browserDetection)
@@ -164,9 +160,7 @@ extension CodexBarCLI {
                 print(sections.joined(separator: "\n\n"))
             }
         case .json:
-            if !payload.isEmpty {
-                Self.printJSON(payload, pretty: output.pretty)
-            }
+            Self.printJSON(payload, pretty: output.pretty)
         }
 
         Self.exit(code: exitCode, output: output, kind: exitCode == .success ? .runtime : .provider)
@@ -178,6 +172,23 @@ extension CodexBarCLI {
         tokenContext: TokenAccountCLIContext,
         command: UsageCommandContext) async -> UsageCommandOutput
     {
+        if provider == .codex, command.includeAllCodexAccounts {
+            var output = UsageCommandOutput()
+            let accounts = tokenContext.visibleCodexAccounts().visibleAccounts
+            let selections: [CodexVisibleAccount?] = accounts.isEmpty ? [nil] : accounts.map { Optional($0) }
+            for visibleAccount in selections {
+                let result = await Self.fetchUsageOutput(
+                    provider: provider,
+                    account: nil,
+                    codexVisibleAccount: visibleAccount,
+                    status: status,
+                    tokenContext: tokenContext,
+                    command: command)
+                output.merge(result)
+            }
+            return output
+        }
+
         let accounts: [ProviderTokenAccount]
         do {
             accounts = try tokenContext.resolvedAccounts(for: provider)
@@ -233,6 +244,7 @@ extension CodexBarCLI {
     private static func fetchUsageOutput(
         provider: UsageProvider,
         account: ProviderTokenAccount?,
+        codexVisibleAccount: CodexVisibleAccount? = nil,
         status: ProviderStatusPayload?,
         tokenContext: TokenAccountCLIContext,
         command: UsageCommandContext) async -> UsageCommandOutput
@@ -241,20 +253,35 @@ extension CodexBarCLI {
         let env = tokenContext.environment(
             base: ProcessInfo.processInfo.environment,
             provider: provider,
-            account: account)
-        let settings = tokenContext.settingsSnapshot(for: provider, account: account)
+            account: account,
+            codexActiveSourceOverride: codexVisibleAccount?.selectionSource)
+        let settings = tokenContext.settingsSnapshot(
+            for: provider,
+            account: account,
+            codexActiveSourceOverride: codexVisibleAccount?.selectionSource)
         let configSource = tokenContext.preferredSourceMode(for: provider)
         let baseSource = command.sourceModeOverride ?? configSource
         let effectiveSourceMode = tokenContext.effectiveSourceMode(
             base: baseSource,
             provider: provider,
             account: account)
+        let cacheAccountKey = Self.usageCacheAccountKey(
+            provider: provider,
+            account: account,
+            codexVisibleAccount: codexVisibleAccount)
 
         #if !os(macOS)
-        if Self.sourceModeRequiresWebSupport(effectiveSourceMode, provider: provider) {
+        if Self.sourceModeRequiresWebSupport(
+            effectiveSourceMode,
+            provider: provider,
+            environment: env,
+            settings: settings)
+        {
             return Self.webSourceUnsupportedOutput(
                 provider: provider,
-                account: account,
+                account: (
+                    label: account?.label ?? codexVisibleAccount?.menuDisplayName,
+                    cacheKey: cacheAccountKey),
                 source: effectiveSourceMode.rawValue,
                 status: status,
                 command: command)
@@ -270,9 +297,14 @@ extension CodexBarCLI {
             verbose: command.verbose,
             env: env,
             settings: settings,
-            fetcher: command.fetcher,
+            fetcher: tokenContext.fetcher(base: command.fetcher, provider: provider, env: env),
             claudeFetcher: command.claudeFetcher,
-            browserDetection: command.browserDetection)
+            browserDetection: command.browserDetection,
+            selectedTokenAccountID: account?.id,
+            tokenAccountTokenUpdater: tokenContext.tokenUpdater(for: account),
+            providerManualTokenUpdater: tokenContext.manualTokenUpdater(),
+            persistsCLISessions: Self.persistsCLISessions(provider: provider, command: command),
+            persistentCLISessionIdleWindow: command.persistentCLISessionIdleWindow)
         let outcome = await Self.fetchProviderUsage(
             provider: provider,
             context: fetchContext)
@@ -290,6 +322,8 @@ extension CodexBarCLI {
             var usage = result.usage.scoped(to: provider)
             if let account {
                 usage = tokenContext.applyAccountLabel(usage, provider: provider, account: account)
+            } else if let codexVisibleAccount {
+                usage = tokenContext.applyCodexVisibleAccountLabel(usage, account: codexVisibleAccount)
             }
 
             var dashboard = result.dashboard
@@ -333,7 +367,8 @@ extension CodexBarCLI {
             case .json:
                 output.payload.append(ProviderPayload(
                     provider: provider,
-                    account: account?.label,
+                    account: account?.label ?? codexVisibleAccount?.menuDisplayName,
+                    cacheAccountKey: cacheAccountKey,
                     version: version,
                     source: source,
                     status: status,
@@ -348,15 +383,16 @@ extension CodexBarCLI {
             if command.format == .json {
                 output.payload.append(Self.makeProviderErrorPayload(
                     provider: provider,
-                    account: account?.label,
+                    account: account?.label ?? codexVisibleAccount?.menuDisplayName,
+                    cacheAccountKey: cacheAccountKey,
                     source: effectiveSourceMode.rawValue,
                     status: status,
                     error: error,
                     kind: .provider))
             } else if !command.jsonOnly {
-                if let account {
+                if let accountLabel = account?.label ?? codexVisibleAccount?.menuDisplayName {
                     Self.writeStderr(
-                        "Error (\(provider.rawValue) - \(account.label)): \(error.localizedDescription)\n")
+                        "Error (\(provider.rawValue) - \(accountLabel)): \(error.localizedDescription)\n")
                 } else {
                     Self.writeStderr("Error: \(error.localizedDescription)\n")
                 }
@@ -370,6 +406,47 @@ extension CodexBarCLI {
             }
         }
 
+        return await Self.finishUsageOutput(output, provider: provider, command: command)
+    }
+
+    private static func holdsAntigravitySession(
+        provider: UsageProvider,
+        command: UsageCommandContext) -> Bool
+    {
+        self.holdsAntigravityCLISessionForPlanDebug(
+            provider: provider,
+            planDebugEnabled: command.antigravityPlanDebug,
+            jsonOnly: command.jsonOnly,
+            persistsCLISessions: command.persistCLISessions)
+    }
+
+    private static func persistsCLISessions(
+        provider: UsageProvider,
+        command: UsageCommandContext) -> Bool
+    {
+        command.persistCLISessions || self.holdsAntigravitySession(provider: provider, command: command)
+    }
+
+    static func holdsAntigravityCLISessionForPlanDebug(
+        provider: UsageProvider,
+        planDebugEnabled: Bool,
+        jsonOnly: Bool,
+        persistsCLISessions: Bool) -> Bool
+    {
+        provider == .antigravity
+            && planDebugEnabled
+            && !jsonOnly
+            && !persistsCLISessions
+    }
+
+    private static func finishUsageOutput(
+        _ output: UsageCommandOutput,
+        provider: UsageProvider,
+        command: UsageCommandContext) async -> UsageCommandOutput
+    {
+        if self.holdsAntigravitySession(provider: provider, command: command) {
+            await ProviderCLISessionLifecycle.shutdownPersistentSessions()
+        }
         return output
     }
 
@@ -405,7 +482,7 @@ extension CodexBarCLI {
 
     private static func webSourceUnsupportedOutput(
         provider: UsageProvider,
-        account: ProviderTokenAccount?,
+        account: (label: String?, cacheKey: String?),
         source: String,
         status: ProviderStatusPayload?,
         command: UsageCommandContext) -> UsageCommandOutput
@@ -420,7 +497,8 @@ extension CodexBarCLI {
         if command.format == .json {
             output.payload.append(Self.makeProviderErrorPayload(
                 provider: provider,
-                account: account?.label,
+                account: account.label,
+                cacheAccountKey: account.cacheKey,
                 source: source,
                 status: status,
                 error: error,
@@ -431,8 +509,62 @@ extension CodexBarCLI {
         return output
     }
 
-    static func sourceModeRequiresWebSupport(_ sourceMode: ProviderSourceMode, provider: UsageProvider) -> Bool {
-        switch sourceMode {
+    static func usageCacheAccountKey(
+        provider _: UsageProvider,
+        account: ProviderTokenAccount?,
+        codexVisibleAccount: CodexVisibleAccount?) -> String?
+    {
+        if let account {
+            return "token:\(account.id.uuidString.lowercased())"
+        }
+        if let codexVisibleAccount {
+            if let workspaceAccountID = codexVisibleAccount.workspaceAccountID?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !workspaceAccountID.isEmpty,
+                !codexVisibleAccount.email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
+                let email = codexVisibleAccount.email
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                return "codex:workspace:\(workspaceAccountID):email:\(email)"
+            }
+            if let storedAccountID = codexVisibleAccount.storedAccountID {
+                return "codex:stored:\(storedAccountID.uuidString.lowercased())"
+            }
+            if let authFingerprint = codexVisibleAccount.authFingerprint {
+                return "codex:auth:\(authFingerprint)"
+            }
+            return nil
+        }
+        return nil
+    }
+
+    static func sourceModeRequiresWebSupport(
+        _ sourceMode: ProviderSourceMode,
+        provider: UsageProvider,
+        environment: [String: String]? = nil,
+        settings: ProviderSettingsSnapshot? = nil) -> Bool
+    {
+        guard provider != .grok, provider != .amp else {
+            return false
+        }
+        if provider == .ollama,
+           sourceMode == .auto
+        {
+            let hasEnvironmentToken = environment.map {
+                ProviderTokenResolver.ollamaToken(environment: $0) != nil
+            } == true
+            if settings?.ollama?.cookieSource == .off || hasEnvironmentToken {
+                return false
+            }
+        }
+        if provider == .kimi,
+           sourceMode == .auto,
+           environment.map({ ProviderTokenResolver.kimiAPIToken(environment: $0) != nil }) == true
+        {
+            return false
+        }
+        return switch sourceMode {
         case .web:
             true
         case .auto:

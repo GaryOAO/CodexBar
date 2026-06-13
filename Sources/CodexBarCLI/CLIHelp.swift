@@ -27,7 +27,8 @@ extension CodexBarCLI {
           - Kilo: app.kilo.ai API.
             Auto falls back to Kilo CLI when API credentials are missing or unauthorized.
           Token accounts are loaded from ~/.codexbar/config.json.
-          Use --account or --account-index to select a specific token account, or --all-accounts to fetch all.
+          Use --account or --account-index to select a specific token account.
+          Use --all-accounts to fetch every token account, or every visible Codex account for Codex.
           Account selection requires a single provider.
 
         Global flags:
@@ -77,6 +78,7 @@ extension CodexBarCLI {
 
         Usage:
           codexbar serve [--port <port>] [--refresh-interval <seconds>]
+                         [--request-timeout <seconds>]
                          [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>]
                          [-v|--verbose]
 
@@ -94,7 +96,7 @@ extension CodexBarCLI {
 
         Examples:
           codexbar serve
-          codexbar serve --port 8080 --refresh-interval 60
+          codexbar serve --port 8080 --refresh-interval 60 --request-timeout 30
           curl http://127.0.0.1:8080/usage?provider=all
         """
     }
@@ -116,17 +118,25 @@ extension CodexBarCLI {
                              [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>]
                              [-v|--verbose]
                              [--pretty]
+          codexbar config providers [--format text|json] [--json] [--json-only] [--pretty]
+          codexbar config enable --provider <name> [--format text|json] [--json] [--json-only] [--pretty]
+          codexbar config disable --provider <name> [--format text|json] [--json] [--json-only] [--pretty]
           codexbar config set-api-key --provider <name> (--api-key <key>|--stdin)
                                     [--no-enable]
                                     [--format text|json] [--json] [--json-only] [--pretty]
 
         Description:
           Validate or print the CodexBar config file (default: validate).
+          providers lists persistent provider enablement.
+          enable/disable updates the same provider toggle used by Settings.
           set-api-key stores a provider API key in ~/.codexbar/config.json and enables that provider by default.
 
         Examples:
           codexbar config validate --format json --pretty
           codexbar config dump --pretty
+          codexbar config providers
+          codexbar config enable --provider grok
+          codexbar config disable --provider cursor
           printf '%s' "$ELEVENLABS_API_KEY" | codexbar config set-api-key --provider elevenlabs --stdin
         """
     }
@@ -159,6 +169,28 @@ extension CodexBarCLI {
         """
     }
 
+    static func diagnoseHelp(version: String) -> String {
+        """
+        CodexBar \(version)
+
+        Usage:
+          codexbar diagnose --provider <name|all> --format json
+                           [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>]
+                           [-v|--verbose]
+                           [--pretty]
+
+        Description:
+          Run provider diagnostic fetches and print a safe JSON export for issue reporting.
+          The export is redacted and omits raw API tokens, cookies, auth headers, emails,
+          account IDs, org IDs, raw responses, and billing-history records.
+
+        Examples:
+          codexbar diagnose --provider minimax --format json --pretty
+          codexbar diagnose --provider claude --format json --pretty
+          codexbar diagnose --provider all --format json
+        """
+    }
+
     static func rootHelp(version: String) -> String {
         """
         CodexBar \(version)
@@ -178,15 +210,19 @@ extension CodexBarCLI {
                        [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>] [-v|--verbose]
                        [--provider \(ProviderHelp.list)] [--no-color] [--pretty] [--refresh]
           codexbar serve [--port <port>] [--refresh-interval <seconds>]
+                       [--request-timeout <seconds>]
                        [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>] [-v|--verbose]
-          codexbar config <validate|dump> [--format text|json]
+          codexbar config <validate|dump|providers> [--format text|json]
                                         [--json]
                                         [--json-only]
                                         [--json-output] [--log-level <trace|verbose|debug|info|warning|error|critical>]
                                         [-v|--verbose]
                                         [--pretty]
+          codexbar config enable --provider <name>
+          codexbar config disable --provider <name>
           codexbar config set-api-key --provider <name> (--api-key <key>|--stdin)
           codexbar cache clear <--cookies|--cost|--all> [--provider <name>]
+          codexbar diagnose --provider <name|all> --format json [--pretty]
 
         Global flags:
           -h, --help      Show help
@@ -204,8 +240,11 @@ extension CodexBarCLI {
           codexbar cost --provider claude --format json --pretty
           codexbar serve --port 8080
           codexbar config validate --format json --pretty
+          codexbar config enable --provider grok
           codexbar config set-api-key --provider elevenlabs --stdin
           codexbar cache clear --cookies
+          codexbar diagnose --provider minimax --format json --pretty
+          codexbar diagnose --provider all --format json
         """
     }
 }

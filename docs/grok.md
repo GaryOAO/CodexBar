@@ -1,5 +1,5 @@
 ---
-summary: "Grok provider data sources: ACP JSON-RPC over `grok agent stdio`, OAuth credentials, and local session signals."
+summary: "Grok provider data sources: ACP JSON-RPC, grok.com billing fallback, OAuth credentials, and local session signals."
 read_when:
   - Debugging Grok billing/usage parsing
   - Updating `grok agent stdio` JSON-RPC integration
@@ -9,8 +9,9 @@ read_when:
 # Grok provider
 
 Grok uses xAI's official Grok Build CLI (`grok`, released 2026-05-14). Usage data is
-fetched via the ACP JSON-RPC `x.ai/billing` extension method over `grok agent stdio`.
-No browser cookies, no direct REST calls.
+fetched via the ACP JSON-RPC `x.ai/billing` extension method over `grok agent stdio`
+when available, then via grok.com's billing gRPC-web endpoint using the signed-in
+browser session when the CLI surface does not expose billing.
 
 ## Data sources + fallback order
 
@@ -29,7 +30,24 @@ No browser cookies, no direct REST calls.
      slashes, so payloads must be re-encoded with `\/` → `/` before being
      written to stdin or grok will silently drop them (12s client-side
      timeout instead of the expected error response).
-3) **Local session signals** (informational fallback)
+3) **grok.com billing gRPC-web fallback** (best-effort)
+   - POSTs an empty gRPC-web protobuf request to
+     `https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig`.
+   - Uses grok.com browser session cookies. When a non-expired
+     `~/.grok/auth.json` token is available, CodexBar first sends it with each
+     browser session, then retries that session with cookies only.
+   - CodexBar imports Chrome only by default to avoid unrelated browser
+     Keychain prompts.
+   - CLI/test runtime does not import browser cookies unless
+     `CODEXBAR_ALLOW_BROWSER_COOKIE_IMPORT=1` is set.
+   - `~/.grok/auth.json` is still used for identity and as a last best-effort
+     bearer-only probe after browser sessions fail. Expired tokens are not sent.
+   - Parses the returned protobuf enough to recover used percent and
+     reset timestamp, accepting both gRPC-web frames and the raw protobuf form
+     returned by some successful requests. A current billing period with an
+     omitted proto3 `credit_usage_percent` is treated as zero usage. This keeps
+     billing visible when `grok agent stdio` returns `Method not found`.
+4) **Local session signals** (informational fallback)
    - Walks `~/.grok/sessions/<encoded-cwd>/<session-id>/signals.json` files (last 30 days).
    - Aggregates `totalTokensBeforeCompaction`, `contextTokensUsed`, `modelsUsed`,
      and the most recent session timestamp.
@@ -83,9 +101,15 @@ No browser cookies, no direct REST calls.
 
 ## Mapping to `UsageSnapshot`
 
-- **Primary window** = monthly credit usage:
-  - `usedPercent` = `usage.totalUsed.val / monthlyLimit.val * 100`.
-  - `resetsAt` = `billingCycle.billingPeriodEnd`.
+- **Primary window** = credit usage (against the subscription/included limit):
+  - CLI RPC: `usedPercent` = `usage.totalUsed.val / monthlyLimit.val * 100`;
+    `resetsAt` = `billingCycle.billingPeriodEnd`.
+  - grok.com fallback: `usedPercent` and `resetsAt` parsed from the gRPC-web
+    billing protobuf.
+  - The UI label for the live usage bar is dynamic: "Weekly" or "Monthly"
+    when `resetsAt` matches a common cycle, falling back to the registered
+    "Credits" label otherwise. Settings and history views continue to use
+    "Credits" as the stable metric name.
 - **Identity**:
   - `accountEmail` from credential `email`.
   - `accountOrganization` from credential `team_id`.
@@ -121,6 +145,7 @@ points to `https://status.x.ai`.
 - `Sources/CodexBarCore/Providers/Grok/GrokProviderDescriptor.swift`
 - `Sources/CodexBarCore/Providers/Grok/GrokAuth.swift`
 - `Sources/CodexBarCore/Providers/Grok/GrokRPCClient.swift`
+- `Sources/CodexBarCore/Providers/Grok/GrokWebBillingFetcher.swift`
 - `Sources/CodexBarCore/Providers/Grok/GrokStatusProbe.swift`
 - `Sources/CodexBarCore/Providers/Grok/GrokLocalSessionScanner.swift`
 - `Sources/CodexBar/Providers/Grok/GrokProviderImplementation.swift`

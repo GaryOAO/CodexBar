@@ -16,6 +16,10 @@ public struct ProviderTokenResolution: Sendable {
 }
 
 public enum ProviderTokenResolver {
+    public static func ampToken(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        self.ampResolution(environment: environment)?.token
+    }
+
     public static func zaiToken(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         self.zaiResolution(environment: environment)?.token
     }
@@ -30,6 +34,12 @@ public enum ProviderTokenResolver {
         environment: [String: String] = ProcessInfo.processInfo.environment) -> String?
     {
         self.openAIAPIResolution(environment: environment)?.token
+    }
+
+    public static func azureOpenAIToken(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> String?
+    {
+        self.azureOpenAIResolution(environment: environment)?.token
     }
 
     public static func claudeAdminAPIToken(
@@ -58,12 +68,20 @@ public enum ProviderTokenResolver {
         self.kimiAuthResolution(environment: environment)?.token
     }
 
+    public static func kimiAPIToken(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        self.kimiAPIResolution(environment: environment)?.token
+    }
+
     public static func kimiK2Token(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         self.kimiK2Resolution(environment: environment)?.token
     }
 
     public static func moonshotToken(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         self.moonshotResolution(environment: environment)?.token
+    }
+
+    public static func ollamaToken(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        self.ollamaResolution(environment: environment)?.token
     }
 
     public static func kiloToken(
@@ -85,6 +103,14 @@ public enum ProviderTokenResolver {
         environment: [String: String] = ProcessInfo.processInfo.environment) -> String?
     {
         self.elevenLabsResolution(environment: environment)?.token
+    }
+
+    public static func groqToken(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        self.groqResolution(environment: environment)?.token
+    }
+
+    public static func llmProxyToken(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        self.llmProxyResolution(environment: environment)?.token
     }
 
     public static func perplexitySessionToken(
@@ -131,6 +157,12 @@ public enum ProviderTokenResolver {
         environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
     {
         self.resolveEnv(BedrockSettingsReader.accessKeyID(environment: environment))
+    }
+
+    public static func ampResolution(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
+    {
+        self.resolveEnv(AmpSettingsReader.apiToken(environment: environment))
     }
 
     public static func deepseekResolution(
@@ -188,6 +220,12 @@ public enum ProviderTokenResolver {
         self.resolveEnv(OpenAIAPISettingsReader.apiKey(environment: environment))
     }
 
+    public static func azureOpenAIResolution(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
+    {
+        self.resolveEnv(AzureOpenAISettingsReader.apiKey(environment: environment))
+    }
+
     public static func claudeAdminAPIResolution(
         environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
     {
@@ -237,6 +275,12 @@ public enum ProviderTokenResolver {
         return nil
     }
 
+    public static func kimiAPIResolution(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
+    {
+        self.resolveEnv(KimiSettingsReader.apiKey(environment: environment))
+    }
+
     public static func kimiK2Resolution(
         environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
     {
@@ -247,6 +291,12 @@ public enum ProviderTokenResolver {
         environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
     {
         self.resolveEnv(MoonshotSettingsReader.apiKey(environment: environment))
+    }
+
+    public static func ollamaResolution(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
+    {
+        self.resolveEnv(OllamaAPISettingsReader.apiKey(environment: environment))
     }
 
     public static func kiloResolution(
@@ -278,6 +328,36 @@ public enum ProviderTokenResolver {
         environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
     {
         self.resolveEnv(ElevenLabsSettingsReader.apiKey(environment: environment))
+    }
+
+    public static func groqResolution(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
+    {
+        self.resolveEnv(GroqSettingsReader.apiKey(environment: environment))
+    }
+
+    public static func llmProxyResolution(
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> ProviderTokenResolution?
+    {
+        self.resolveEnv(LLMProxySettingsReader.apiKey(environment: environment))
+    }
+
+    public enum DeepgramCredentialKind: Sendable {
+        case apiKey
+        case projectID
+    }
+
+    public static func deepgramResolution(
+        type: DeepgramCredentialKind,
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> String?
+    {
+        switch type {
+        case .apiKey:
+            self.resolveEnv(DeepgramSettingsReader.apiKey(environment: environment))?.token
+
+        case .projectID:
+            self.resolveEnv(DeepgramSettingsReader.projectID(environment: environment))?.token
+        }
     }
 
     public static func codebuffResolution(
@@ -320,8 +400,7 @@ public enum ProviderTokenResolver {
         if (value.hasPrefix("\"") && value.hasSuffix("\"")) ||
             (value.hasPrefix("'") && value.hasSuffix("'"))
         {
-            value.removeFirst()
-            value.removeLast()
+            value = String(value.dropFirst().dropLast())
         }
 
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -19,6 +19,7 @@ struct SettingsDefaultsState {
     var quotaWarningWeeklyEnabled: Bool
     var quotaWarningSoundEnabled: Bool
     var quotaWarningMarkersVisible: Bool
+    var weeklyProgressWorkDays: Int?
     var usageBarsShowUsed: Bool
     var resetTimesShowAbsolute: Bool
     var providerChangelogLinksEnabled: Bool
@@ -28,7 +29,10 @@ struct SettingsDefaultsState {
     var historicalTrackingEnabled: Bool
     var multiAccountMenuLayoutRaw: String
     var menuBarMetricPreferencesRaw: [String: String]
+    var copilotBudgetExtrasEnabled: Bool
+    var copilotIconSecondaryWindowIDRaw: String
     var costUsageEnabled: Bool
+    var costUsageHistoryDays: Int
     var hidePersonalInfo: Bool
     var randomBlinkEnabled: Bool
     var confettiOnWeeklyLimitResetsEnabled: Bool
@@ -36,7 +40,6 @@ struct SettingsDefaultsState {
     var claudeOAuthKeychainPromptModeRaw: String?
     var claudeOAuthKeychainReadStrategyRaw: String?
     var claudeWebExtrasEnabledRaw: Bool
-    var claudePeakHoursEnabled: Bool
     var showOptionalCreditsAndExtraUsage: Bool
     var openAIWebAccessEnabled: Bool
     var openAIWebBatterySaverEnabled: Bool
@@ -59,4 +62,5 @@ struct SettingsDefaultsState {
     var petQuietHoursEnd: Int
     var petUsageDisplayRaw: String
     var petPersonalityRaw: String
+    var terminalAppRaw: String?
 }

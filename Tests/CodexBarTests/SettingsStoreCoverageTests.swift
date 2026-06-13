@@ -75,6 +75,49 @@ struct SettingsStoreCoverageTests {
     }
 
     @Test
+    func `minimax settings snapshot uses selected token account as manual cookie`() {
+        let settings = Self.makeSettingsStore(suiteName: "SettingsStoreCoverageTests-minimax-token-account")
+        settings.minimaxCookieSource = .auto
+        settings.minimaxCookieHeader = "HERTZ-SESSION=global"
+        settings.addTokenAccount(provider: .minimax, label: "account", token: "HERTZ-SESSION=selected")
+
+        let snapshot = settings.minimaxSettingsSnapshot(tokenOverride: nil)
+
+        #expect(snapshot.cookieSource == .manual)
+        #expect(snapshot.manualCookieHeader == "HERTZ-SESSION=selected")
+    }
+
+    @Test
+    func `minimax settings snapshot falls back to global cookie without token accounts`() {
+        let settings = Self.makeSettingsStore(suiteName: "SettingsStoreCoverageTests-minimax-global-cookie")
+        settings.minimaxCookieSource = .auto
+        settings.minimaxCookieHeader = "HERTZ-SESSION=global"
+
+        let snapshot = settings.minimaxSettingsSnapshot(tokenOverride: nil)
+
+        #expect(snapshot.cookieSource == .auto)
+        #expect(snapshot.manualCookieHeader == "HERTZ-SESSION=global")
+    }
+
+    @Test
+    func `copilot budget extras default off and persist in provider snapshot`() throws {
+        let suite = "SettingsStoreCoverageTests-copilot-budget-extras"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+
+        let initial = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+        #expect(initial.copilotBudgetExtrasEnabled == false)
+        #expect(initial.copilotSettingsSnapshot(tokenOverride: nil).budgetExtrasEnabled == false)
+
+        initial.copilotBudgetExtrasEnabled = true
+
+        let reloaded = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+        #expect(reloaded.copilotBudgetExtrasEnabled)
+        #expect(reloaded.copilotSettingsSnapshot(tokenOverride: nil).budgetExtrasEnabled)
+    }
+
+    @Test
     func `multi account menu layout persists and bridges legacy show all token accounts`() throws {
         let suite = "SettingsStoreCoverageTests-multi-account-layout"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -168,6 +211,21 @@ struct SettingsStoreCoverageTests {
         #expect(settings.tokenAccounts(for: .copilot).isEmpty)
         #expect(settings.copilotAPIToken.isEmpty)
         #expect(settings.copilotSettingsSnapshot(tokenOverride: nil).apiToken == nil)
+    }
+
+    @Test
+    func `copilot settings snapshot carries selected account identifier`() {
+        let settings = Self.makeSettingsStore()
+        settings.addTokenAccount(
+            provider: .copilot,
+            label: "octocat (Pro)",
+            token: "token-1",
+            externalIdentifier: "github:user:123")
+
+        let snapshot = settings.copilotSettingsSnapshot(tokenOverride: nil)
+
+        #expect(snapshot.apiToken == "token-1")
+        #expect(snapshot.selectedAccountExternalIdentifier == "github:user:123")
     }
 
     @Test
@@ -483,6 +541,38 @@ struct SettingsStoreCoverageTests {
         #expect(accounts.count == 2)
         #expect(accounts.map(\.label) == ["Google Account 1", "Google Account 2"])
         #expect(settings.selectedTokenAccount(for: .antigravity)?.id == accounts.last?.id)
+    }
+
+    @Test
+    func `weekly progress work days defaults to nil and persists across store reload`() throws {
+        let suite = "SettingsStoreCoverageTests-weekly-progress-work-days"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let configStore = testConfigStore(suiteName: suite)
+
+        let fresh = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+        #expect(fresh.weeklyProgressWorkDays == nil)
+
+        fresh.weeklyProgressWorkDays = 5
+        #expect(defaults.object(forKey: "weeklyProgressWorkDays") as? Int == 5)
+
+        let reloaded = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+        #expect(reloaded.weeklyProgressWorkDays == 5)
+
+        fresh.weeklyProgressWorkDays = 4
+        #expect(reloaded.weeklyProgressWorkDays == 5)
+
+        let reloaded2 = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+        #expect(reloaded2.weeklyProgressWorkDays == 4)
+
+        reloaded2.weeklyProgressWorkDays = 7
+        let reloaded3 = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+        #expect(reloaded3.weeklyProgressWorkDays == 7)
+
+        reloaded3.weeklyProgressWorkDays = nil
+        #expect(defaults.object(forKey: "weeklyProgressWorkDays") == nil)
+        let reloaded4 = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+        #expect(reloaded4.weeklyProgressWorkDays == nil)
     }
 
     private static func makeSettingsStore(suiteName: String = "SettingsStoreCoverageTests") -> SettingsStore {

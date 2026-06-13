@@ -15,15 +15,18 @@ enum ProviderImplementationRegistry {
         switch provider {
         case .codex: CodexProviderImplementation()
         case .openai: OpenAIAPIProviderImplementation()
+        case .azureopenai: AzureOpenAIProviderImplementation()
         case .claude: ClaudeProviderImplementation()
         case .cursor: CursorProviderImplementation()
         case .opencode: OpenCodeProviderImplementation()
         case .opencodego: OpenCodeGoProviderImplementation()
         case .alibaba: AlibabaCodingPlanProviderImplementation()
+        case .alibabatokenplan: AlibabaTokenPlanProviderImplementation()
         case .factory: FactoryProviderImplementation()
         case .gemini: GeminiProviderImplementation()
         case .antigravity: AntigravityProviderImplementation()
         case .copilot: CopilotProviderImplementation()
+        case .devin: DevinProviderImplementation()
         case .zai: ZaiProviderImplementation()
         case .minimax: MiniMaxProviderImplementation()
         case .manus: ManusProviderImplementation()
@@ -36,6 +39,7 @@ enum ProviderImplementationRegistry {
         case .kimik2: KimiK2ProviderImplementation()
         case .moonshot: MoonshotProviderImplementation()
         case .amp: AmpProviderImplementation()
+        case .t3chat: T3ChatProviderImplementation()
         case .ollama: OllamaProviderImplementation()
         case .synthetic: SyntheticProviderImplementation()
         case .openrouter: OpenRouterProviderImplementation()
@@ -55,6 +59,9 @@ enum ProviderImplementationRegistry {
         case .stepfun: StepFunProviderImplementation()
         case .bedrock: BedrockProviderImplementation()
         case .grok: GrokProviderImplementation()
+        case .groq: GroqProviderImplementation()
+        case .llmproxy: LLMProxyProviderImplementation()
+        case .deepgram: DeepgramProviderImplementation()
         }
     }
 

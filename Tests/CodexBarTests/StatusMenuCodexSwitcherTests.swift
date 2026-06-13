@@ -63,7 +63,11 @@ struct StatusMenuCodexSwitcherTests {
                 windowMinutes: 300,
                 resetsAt: Date().addingTimeInterval(300),
                 resetDescription: nil),
-            secondary: nil,
+            secondary: RateWindow(
+                usedPercent: percent,
+                windowMinutes: 10080,
+                resetsAt: Date().addingTimeInterval(86400),
+                resetDescription: nil),
             updatedAt: Date(),
             identity: ProviderIdentitySnapshot(
                 providerID: .codex,
@@ -219,6 +223,7 @@ struct StatusMenuCodexSwitcherTests {
             codexHomePath: "/Users/test/.codex",
             observedAt: Date())
         settings.codexActiveSource = .liveSystem
+        _ = settings.codexVisibleAccountProjection
 
         let fetcher = UsageFetcher()
         let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
@@ -281,6 +286,7 @@ struct StatusMenuCodexSwitcherTests {
             codexHomePath: "/Users/test/.codex",
             observedAt: Date())
         settings.codexActiveSource = .liveSystem
+        _ = settings.codexVisibleAccountProjection
 
         let fetcher = UsageFetcher()
         let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
@@ -445,6 +451,7 @@ struct StatusMenuCodexSwitcherTests {
             codexHomePath: "/Users/test/.codex",
             observedAt: Date())
         settings.codexActiveSource = .liveSystem
+        _ = settings.codexVisibleAccountProjection
 
         let fetcher = UsageFetcher()
         let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
@@ -865,6 +872,129 @@ struct StatusMenuCodexSwitcherTests {
 
         #expect(settings.selectCodexVisibleAccount(id: managedVisibleAccount.id))
         #expect(settings.codexActiveSource == .managedAccount(id: managedAccountID))
+    }
+}
+
+extension StatusMenuCodexSwitcherTests {
+    @Test
+    func `codex account switcher swallows child button hit testing for first click`() throws {
+        let managedID = try #require(UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-111111111111"))
+        let accounts = [
+            CodexVisibleAccount(
+                id: "live@example.com",
+                email: "live@example.com",
+                storedAccountID: nil,
+                selectionSource: .liveSystem,
+                isActive: true,
+                isLive: true,
+                canReauthenticate: true,
+                canRemove: false),
+            CodexVisibleAccount(
+                id: "managed@example.com",
+                email: "managed@example.com",
+                storedAccountID: managedID,
+                selectionSource: .managedAccount(id: managedID),
+                isActive: false,
+                isLive: false,
+                canReauthenticate: true,
+                canRemove: true),
+        ]
+        let view = CodexAccountSwitcherView(
+            accounts: accounts,
+            selectedAccountID: accounts.first?.id,
+            width: 220,
+            onSelect: { _ in })
+
+        #expect(view.acceptsFirstMouse(for: nil) == true)
+        #expect(view._test_hitTestSwallowsChildButton(id: "managed@example.com") == true)
+        #expect(view._test_toolTipAfterHitTest(id: "managed@example.com") == "managed@example.com")
+    }
+
+    @Test
+    func `codex account switcher routes runtime click path to selected account`() throws {
+        let managedID = try #require(UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-111111111111"))
+        let accounts = [
+            CodexVisibleAccount(
+                id: "live@example.com",
+                email: "live@example.com",
+                storedAccountID: nil,
+                selectionSource: .liveSystem,
+                isActive: true,
+                isLive: true,
+                canReauthenticate: true,
+                canRemove: false),
+            CodexVisibleAccount(
+                id: "managed@example.com",
+                email: "managed@example.com",
+                storedAccountID: managedID,
+                selectionSource: .managedAccount(id: managedID),
+                isActive: false,
+                isLive: false,
+                canReauthenticate: true,
+                canRemove: true),
+        ]
+        var selectedAccount: CodexVisibleAccount?
+        let view = CodexAccountSwitcherView(
+            accounts: accounts,
+            selectedAccountID: accounts.first?.id,
+            width: 220,
+            onSelect: { selectedAccount = $0 })
+
+        #expect(view._test_simulateRuntimeClick(id: "managed@example.com") == true)
+        #expect(selectedAccount == accounts[1])
+    }
+
+    @Test
+    func `codex account switcher runtime click resolves second row buttons`() throws {
+        let managedID = try #require(UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-111111111111"))
+        let secondManagedID = try #require(UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-222222222222"))
+        let accounts = [
+            CodexVisibleAccount(
+                id: "live@example.com",
+                email: "live@example.com",
+                storedAccountID: nil,
+                selectionSource: .liveSystem,
+                isActive: true,
+                isLive: true,
+                canReauthenticate: true,
+                canRemove: false),
+            CodexVisibleAccount(
+                id: "managed@example.com",
+                email: "managed@example.com",
+                storedAccountID: managedID,
+                selectionSource: .managedAccount(id: managedID),
+                isActive: false,
+                isLive: false,
+                canReauthenticate: true,
+                canRemove: true),
+            CodexVisibleAccount(
+                id: "team@example.com",
+                email: "team@example.com",
+                storedAccountID: secondManagedID,
+                selectionSource: .managedAccount(id: secondManagedID),
+                isActive: false,
+                isLive: false,
+                canReauthenticate: true,
+                canRemove: true),
+            CodexVisibleAccount(
+                id: "second-row@example.com",
+                email: "second-row@example.com",
+                storedAccountID: nil,
+                selectionSource: .liveSystem,
+                isActive: false,
+                isLive: true,
+                canReauthenticate: true,
+                canRemove: false),
+        ]
+        var selectedAccount: CodexVisibleAccount?
+        let view = CodexAccountSwitcherView(
+            accounts: accounts,
+            selectedAccountID: accounts.first?.id,
+            width: 220,
+            onSelect: { selectedAccount = $0 })
+
+        #expect(view._test_simulateRuntimeClick(id: "second-row@example.com") == true)
+        #expect(selectedAccount == accounts[3])
     }
 }
 

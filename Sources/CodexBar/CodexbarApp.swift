@@ -41,13 +41,17 @@ struct CodexBarApp: App {
 
         KeychainAccessGate.isDisabled = UserDefaults.standard.bool(forKey: "debugDisableKeychainAccess")
         KeychainPromptCoordinator.install()
+        if MainThreadHangWatchdog.isEnabledForCurrentProcess {
+            MainThreadHangWatchdog.shared.start()
+        }
 
         let preferencesSelection = PreferencesSelection()
         let settings = SettingsStore()
         Self.applyLanguagePreference(from: settings)
+        configureUsageFormatterLocalizationProvider()
         let managedCodexAccountCoordinator = ManagedCodexAccountCoordinator()
         managedCodexAccountCoordinator.onManagedAccountsDidChange = {
-            _ = settings.persistResolvedCodexActiveSourceCorrectionIfNeeded()
+            _ = settings.refreshCodexAccountReconciliationAfterManagedAccountsDidChange()
         }
         _ = settings.persistResolvedCodexActiveSourceCorrectionIfNeeded()
         let fetcher = UsageFetcher()
@@ -370,6 +374,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var petLastTokenRefreshRequestAt: Date?
     private var petLastMode: UInt8 = PetMode.idle.rawValue
     private var petBluetoothPermissionTask: Task<Void, Never>?
+    var terminateActiveProcessesForAppShutdown: () -> Void = {
+        TTYCommandRunner.terminateActiveProcessesForAppShutdown()
+    }
 
     func configure(_ dependencies: Dependencies) {
         self.store = dependencies.store
@@ -392,7 +399,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppNotifications.shared.requestAuthorizationOnStartup()
         self.ensureStatusController()
         KeyboardShortcuts.onKeyUp(for: .openMenu) { [weak self] in
-            Task { @MainActor [weak self] in
+            // KeyboardShortcuts dispatches both normal and menu-tracking hotkeys on the main event loop.
+            MainActor.assumeIsolated {
                 self?.statusController?.openMenuFromShortcut()
             }
         }
@@ -410,6 +418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        self.statusController?.prepareForAppShutdown()
         self.confettiOverlayController.dismiss()
         TTYCommandRunner.terminateActiveProcessesForAppShutdown()
         self.stopPetRuntime()
@@ -874,6 +883,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static func classicIconURL() -> URL? {
         Bundle.main.url(forResource: "Icon-classic", withExtension: "icns")
+    }
+
+    private func dismissAppKitWindowsForShutdown() {
+        guard let app = NSApp else { return }
+        for window in app.windows {
+            window.orderOut(nil)
+        }
     }
 
     private func ensureStatusController() {

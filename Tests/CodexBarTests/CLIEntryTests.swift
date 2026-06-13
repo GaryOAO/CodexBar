@@ -162,6 +162,37 @@ final class CLIEntryTests: XCTestCase {
         XCTAssertEqual(CodexBarCLI.mapError(UsageError.noRateLimitsFound), ExitCode(3))
     }
 
+    func test_antigravityPlanDebugKeepsOneShotHelperAliveUntilDebugFetch() {
+        XCTAssertTrue(CodexBarCLI.holdsAntigravityCLISessionForPlanDebug(
+            provider: .antigravity,
+            planDebugEnabled: true,
+            jsonOnly: false,
+            persistsCLISessions: false))
+        XCTAssertFalse(CodexBarCLI.holdsAntigravityCLISessionForPlanDebug(
+            provider: .codex,
+            planDebugEnabled: true,
+            jsonOnly: false,
+            persistsCLISessions: false))
+        XCTAssertFalse(CodexBarCLI.holdsAntigravityCLISessionForPlanDebug(
+            provider: .antigravity,
+            planDebugEnabled: true,
+            jsonOnly: true,
+            persistsCLISessions: false))
+        XCTAssertFalse(CodexBarCLI.holdsAntigravityCLISessionForPlanDebug(
+            provider: .antigravity,
+            planDebugEnabled: true,
+            jsonOnly: false,
+            persistsCLISessions: true))
+    }
+
+    func test_missingCodexBinaryErrorPayloadUsesInstallGuidance() {
+        let payload = CodexBarCLI.makeErrorPayload(CodexStatusProbeError.codexNotInstalled, kind: .provider)
+
+        XCTAssertEqual(payload.code, ExitCode.binaryNotFound.rawValue)
+        XCTAssertTrue(payload.message.contains("Codex CLI missing"))
+        XCTAssertFalse(payload.message.contains("Codex not running"))
+    }
+
     func test_providerSelectionFallsBackToBothForPrimaryPair() {
         let selection = CodexBarCLI.providerSelection(rawOverride: nil, enabled: [.codex, .claude])
         switch selection {
@@ -182,13 +213,13 @@ final class CLIEntryTests: XCTestCase {
         }
     }
 
-    func test_providerSelectionDefaultsToCodexWhenEmpty() {
+    func test_providerSelectionHonorsEmptyEnabledSet() {
         let selection = CodexBarCLI.providerSelection(rawOverride: nil, enabled: [])
         switch selection {
-        case let .single(provider):
-            XCTAssertEqual(provider, .codex)
+        case let .custom(providers):
+            XCTAssertEqual(providers, [])
         default:
-            XCTFail("Expected single Codex selection")
+            XCTFail("Expected empty custom selection")
         }
     }
 
@@ -272,6 +303,26 @@ final class CLIEntryTests: XCTestCase {
         XCTAssertTrue(CodexBarCLI.sourceModeRequiresWebSupport(.web, provider: .kilo))
         XCTAssertTrue(CodexBarCLI.sourceModeRequiresWebSupport(.auto, provider: .codex))
         XCTAssertFalse(CodexBarCLI.sourceModeRequiresWebSupport(.auto, provider: .kilo))
+        XCTAssertFalse(CodexBarCLI.sourceModeRequiresWebSupport(.auto, provider: .grok))
+        XCTAssertFalse(CodexBarCLI.sourceModeRequiresWebSupport(.web, provider: .grok))
+        XCTAssertFalse(CodexBarCLI.sourceModeRequiresWebSupport(.auto, provider: .amp))
         XCTAssertFalse(CodexBarCLI.sourceModeRequiresWebSupport(.api, provider: .kilo))
+        XCTAssertFalse(CodexBarCLI.sourceModeRequiresWebSupport(
+            .auto,
+            provider: .ollama,
+            environment: ["OLLAMA_API_KEY": "ollama-test"]))
+        XCTAssertTrue(CodexBarCLI.sourceModeRequiresWebSupport(
+            .auto,
+            provider: .codex,
+            environment: ["OLLAMA_API_KEY": "ollama-test"]))
+        XCTAssertFalse(CodexBarCLI.sourceModeRequiresWebSupport(
+            .auto,
+            provider: .ollama,
+            settings: ProviderSettingsSnapshot.make(
+                ollama: .init(cookieSource: .off, manualCookieHeader: nil))))
+        XCTAssertFalse(CodexBarCLI.sourceModeRequiresWebSupport(
+            .auto,
+            provider: .kimi,
+            environment: ["KIMI_CODE_API_KEY": "kimi-test"]))
     }
 }

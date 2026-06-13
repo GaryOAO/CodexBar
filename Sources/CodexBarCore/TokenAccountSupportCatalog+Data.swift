@@ -8,7 +8,8 @@ extension TokenAccountSupportCatalog {
             placeholder: "sk-admin-...",
             injection: .environment(key: OpenAIAPISettingsReader.adminAPIKeyEnvironmentKey),
             requiresManualCookieSource: false,
-            cookieName: nil),
+            cookieName: nil,
+            environmentKeysToScrub: [OpenAIAPISettingsReader.projectIDEnvironmentKey]),
         .claude: TokenAccountSupport(
             title: "Claude credentials",
             subtitle: "Store Claude sessionKey cookies, OAuth tokens, or Anthropic Admin API keys.",
@@ -126,6 +127,20 @@ extension TokenAccountSupportCatalog {
             subtitle: "Store multiple ElevenLabs API keys.",
             placeholder: "Paste API key…",
             injection: .environment(key: ElevenLabsSettingsReader.apiKeyEnvironmentKey),
+            requiresManualCookieSource: false,
+            cookieName: nil),
+        .groq: TokenAccountSupport(
+            title: "API keys",
+            subtitle: "Store multiple Groq API keys.",
+            placeholder: "Paste Groq API key…",
+            injection: .environment(key: GroqSettingsReader.apiKeyEnvironmentKey),
+            requiresManualCookieSource: false,
+            cookieName: nil),
+        .llmproxy: TokenAccountSupport(
+            title: "API keys",
+            subtitle: "Store multiple LLM Proxy API keys.",
+            placeholder: "Paste proxy API key…",
+            injection: .environment(key: LLMProxySettingsReader.apiKeyEnvironmentKey),
             requiresManualCookieSource: false,
             cookieName: nil),
         .stepfun: TokenAccountSupport(

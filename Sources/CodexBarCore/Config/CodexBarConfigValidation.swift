@@ -28,6 +28,15 @@ public struct CodexBarConfigIssue: Codable, Sendable, Equatable {
 }
 
 public enum CodexBarConfigValidator {
+    private static let workspaceIDProviders: [UsageProvider] = [
+        .azureopenai,
+        .openai,
+        .opencode,
+        .opencodego,
+        .devin,
+        .deepgram,
+    ]
+
     public static func validate(_ config: CodexBarConfig) -> [CodexBarConfigIssue] {
         var issues: [CodexBarConfigIssue] = []
 
@@ -131,27 +140,27 @@ public enum CodexBarConfigValidator {
 
         if let workspaceID = entry.workspaceID,
            !workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           provider != .opencode,
-           provider != .opencodego
+           !self.providerSupportsWorkspaceID(provider)
         {
             issues.append(CodexBarConfigIssue(
                 severity: .warning,
                 provider: provider,
                 field: "workspaceID",
                 code: "workspace_unused",
-                message: "workspaceID is set but only opencode and opencodego support workspaceID."))
+                message: "workspaceID is set but only \(self.workspaceIDProviderList) support workspaceID."))
         }
 
         if let enterpriseHost = entry.enterpriseHost,
            !enterpriseHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           provider != .copilot
+           !self.providerSupportsEnterpriseHost(provider)
         {
             issues.append(CodexBarConfigIssue(
                 severity: .warning,
                 provider: provider,
                 field: "enterpriseHost",
                 code: "enterprise_host_unused",
-                message: "enterpriseHost is set but only copilot supports enterpriseHost."))
+                message: "enterpriseHost is set but only azureopenai, copilot, kimi, " +
+                    "and llmproxy support enterpriseHost."))
         }
 
         if let tokenAccounts = entry.tokenAccounts, !tokenAccounts.accounts.isEmpty,
@@ -180,6 +189,30 @@ public enum CodexBarConfigValidator {
             field: "secretKey",
             code: "secret_key_unused",
             message: "secretKey is set but only bedrock uses secretKey."))
+    }
+
+    private static func providerSupportsWorkspaceID(_ provider: UsageProvider) -> Bool {
+        self.workspaceIDProviders.contains(provider)
+    }
+
+    private static var workspaceIDProviderList: String {
+        self.formattedProviderList(self.workspaceIDProviders)
+    }
+
+    private static func formattedProviderList(_ providers: [UsageProvider]) -> String {
+        let names = providers.map(\.rawValue)
+        guard let last = names.last else { return "" }
+        guard names.count > 1 else { return last }
+        return "\(names.dropLast().joined(separator: ", ")), and \(last)"
+    }
+
+    private static func providerSupportsEnterpriseHost(_ provider: UsageProvider) -> Bool {
+        switch provider {
+        case .azureopenai, .copilot, .kimi, .llmproxy:
+            true
+        default:
+            false
+        }
     }
 
     private static func validateRegion(_ entry: ProviderConfig, issues: inout [CodexBarConfigIssue]) {

@@ -115,14 +115,26 @@ public struct OpenAIAPIUsageSnapshot: Codable, Equatable, Sendable {
 
     public let daily: [DailyBucket]
     public let updatedAt: Date
+    public let historyDays: Int
+    public let projectID: String?
 
-    public init(daily: [DailyBucket], updatedAt: Date) {
+    public init(daily: [DailyBucket], updatedAt: Date, historyDays: Int = 30, projectID: String? = nil) {
         self.daily = daily.sorted { $0.startTime < $1.startTime }
         self.updatedAt = updatedAt
+        self.historyDays = max(1, min(365, historyDays))
+        self.projectID = OpenAIAPISettingsReader.cleaned(projectID)
     }
 
     public var last30Days: Summary {
-        self.summary(days: 30)
+        self.summary(days: self.historyDays)
+    }
+
+    public var historyWindowLabel: String {
+        self.historyDays == 1 ? "Today" : "\(self.historyDays)d"
+    }
+
+    public var historyWindowPeriodLabel: String {
+        self.historyDays == 1 ? "Today" : "Last \(self.historyDays) days"
     }
 
     public var last7Days: Summary {
@@ -183,15 +195,61 @@ public struct OpenAIAPIUsageSnapshot: Codable, Equatable, Sendable {
                 used: total.costUSD,
                 limit: 0,
                 currencyCode: "USD",
-                period: "Last 30 days",
+                period: self.historyWindowPeriodLabel,
                 updatedAt: self.updatedAt),
             openAIAPIUsage: self,
             updatedAt: self.updatedAt,
             identity: ProviderIdentitySnapshot(
                 providerID: .openai,
                 accountEmail: nil,
-                accountOrganization: nil,
-                loginMethod: "Admin API"))
+                accountOrganization: self.identityAccountOrganization,
+                loginMethod: self.identityLoginMethod))
+    }
+
+    private var identityLoginMethod: String {
+        guard let projectID else { return "Admin API" }
+        return "Admin API: \(projectID)"
+    }
+
+    private var identityAccountOrganization: String? {
+        guard let projectID else { return nil }
+        return "Project: \(projectID)"
+    }
+
+    public func toCostUsageTokenSnapshot() -> CostUsageTokenSnapshot {
+        let daily = self.daily.map { bucket in
+            let modelBreakdowns = bucket.models.map {
+                CostUsageDailyReport.ModelBreakdown(
+                    modelName: $0.name,
+                    costUSD: nil,
+                    totalTokens: $0.totalTokens,
+                    requestCount: $0.requests)
+            }
+            let modelsUsed = bucket.models.map(\.name)
+            return CostUsageDailyReport.Entry(
+                date: bucket.day,
+                inputTokens: bucket.inputTokens,
+                outputTokens: bucket.outputTokens,
+                cacheReadTokens: bucket.cachedInputTokens,
+                cacheCreationTokens: nil,
+                totalTokens: bucket.totalTokens,
+                requestCount: bucket.requests,
+                costUSD: bucket.costUSD,
+                modelsUsed: modelsUsed.isEmpty ? nil : modelsUsed,
+                modelBreakdowns: modelBreakdowns.isEmpty ? nil : modelBreakdowns)
+        }
+        let latest = self.latestDay
+        let total = self.last30Days
+        return CostUsageTokenSnapshot(
+            sessionTokens: latest.totalTokens,
+            sessionCostUSD: latest.costUSD,
+            sessionRequests: latest.requests,
+            last30DaysTokens: total.totalTokens,
+            last30DaysCostUSD: total.costUSD,
+            last30DaysRequests: total.requests,
+            historyDays: self.historyDays,
+            daily: daily,
+            updatedAt: self.updatedAt)
     }
 
     private struct ModelAccumulator {

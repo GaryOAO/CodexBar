@@ -108,6 +108,11 @@ struct StepFunLoginResponse: Decodable {
     let refreshToken: StepFunTokenPair?
 }
 
+struct StepFunRefreshTokenResponse: Decodable {
+    let accessToken: StepFunTokenPair?
+    let refreshToken: StepFunTokenPair?
+}
+
 struct StepFunTokenPair: Decodable {
     let raw: String
 }
@@ -184,6 +189,7 @@ public enum StepFunUsageError: LocalizedError, Sendable {
     case apiError(String)
     case parseFailed(String)
     case loginFailed(String)
+    case tokenRefreshFailed(String)
     case deviceRegistrationFailed(String)
 
     public var errorDescription: String? {
@@ -200,6 +206,8 @@ public enum StepFunUsageError: LocalizedError, Sendable {
             "Failed to parse StepFun response: \(message)"
         case let .loginFailed(message):
             "StepFun login failed: \(message)"
+        case let .tokenRefreshFailed(message):
+            "StepFun token refresh failed: \(message)"
         case let .deviceRegistrationFailed(message):
             "StepFun device registration failed: \(message)"
         }
@@ -219,6 +227,8 @@ public struct StepFunUsageFetcher: Sendable {
         URL(string: "https://platform.stepfun.com/passport/proto.api.passport.v1.PassportService/RegisterDevice")!
     private static let loginURL =
         URL(string: "https://platform.stepfun.com/passport/proto.api.passport.v1.PassportService/SignInByPassword")!
+    private static let refreshTokenURL =
+        URL(string: "https://platform.stepfun.com/passport/proto.api.passport.v1.PassportService/RefreshToken")!
     private static let timeoutSeconds: TimeInterval = 15
 
     private static let webID = "c8a1002d2c457e758785a9979832217c7c0b884c"
@@ -239,6 +249,11 @@ public struct StepFunUsageFetcher: Sendable {
     /// Does NOT fetch usage — the caller should cache the token and then call `fetchUsage(token:)`.
     public static func login(username: String, password: String) async throws -> String {
         try await self.fullLogin(username: username, password: password)
+    }
+
+    /// Refresh an existing Oasis-Token and return a fresh access + refresh token pair.
+    public static func refreshToken(token: String) async throws -> String {
+        try await self.refreshOasisToken(token: token)
     }
 
     /// Fetch usage data using an existing Oasis-Token (from env var or cached).
@@ -280,11 +295,8 @@ public struct StepFunUsageFetcher: Sendable {
         }
         request.timeoutInterval = self.timeoutSeconds
 
-        let (_, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw StepFunUsageError.networkError("Invalid response fetching platform page")
-        }
+        let response = try await ProviderHTTPClient.shared.response(for: request)
+        let httpResponse = response.response
 
         // Extract INGRESSCOOKIE from Set-Cookie headers
         let setCookieHeaders = httpResponse.allHeaderFields.filter { ($0.key as? String)?.lowercased() == "set-cookie" }
@@ -326,16 +338,12 @@ public struct StepFunUsageFetcher: Sendable {
         request.setValue("INGRESSCOOKIE=\(ingressCookie)", forHTTPHeaderField: "Cookie")
         request.timeoutInterval = self.timeoutSeconds
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw StepFunUsageError.networkError("Invalid response from RegisterDevice")
-        }
-
-        guard httpResponse.statusCode == 200 else {
+        let response = try await ProviderHTTPClient.shared.response(for: request)
+        let data = response.data
+        guard response.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            Self.log.error("StepFun RegisterDevice returned \(httpResponse.statusCode): \(body)")
-            throw StepFunUsageError.deviceRegistrationFailed("HTTP \(httpResponse.statusCode)")
+            Self.log.error("StepFun RegisterDevice returned \(response.statusCode): \(body)")
+            throw StepFunUsageError.deviceRegistrationFailed("HTTP \(response.statusCode)")
         }
 
         let decoded: StepFunRegisterDeviceResponse
@@ -349,9 +357,7 @@ public struct StepFunUsageFetcher: Sendable {
             throw StepFunUsageError.deviceRegistrationFailed("No access token in RegisterDevice response")
         }
 
-        let refreshToken = decoded.refreshToken?.raw ?? ""
-        // Combine access + refresh tokens like the Python tool does
-        return "\(accessToken)...\(refreshToken)"
+        return self.combinedToken(accessToken: accessToken, refreshToken: decoded.refreshToken?.raw)
     }
 
     private static func signInByPassword(
@@ -372,16 +378,12 @@ public struct StepFunUsageFetcher: Sendable {
             forHTTPHeaderField: "Cookie")
         request.timeoutInterval = self.timeoutSeconds
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw StepFunUsageError.networkError("Invalid response from SignInByPassword")
-        }
-
-        guard httpResponse.statusCode == 200 else {
+        let response = try await ProviderHTTPClient.shared.response(for: request)
+        let data = response.data
+        guard response.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            Self.log.error("StepFun SignInByPassword returned \(httpResponse.statusCode): \(body)")
-            throw StepFunUsageError.loginFailed("HTTP \(httpResponse.statusCode)")
+            Self.log.error("StepFun SignInByPassword returned \(response.statusCode): \(body)")
+            throw StepFunUsageError.loginFailed("HTTP \(response.statusCode)")
         }
 
         let decoded: StepFunLoginResponse
@@ -395,7 +397,53 @@ public struct StepFunUsageFetcher: Sendable {
             throw StepFunUsageError.loginFailed("No access token in login response")
         }
 
-        let refreshToken = decoded.refreshToken?.raw ?? ""
+        return self.combinedToken(accessToken: accessToken, refreshToken: decoded.refreshToken?.raw)
+    }
+
+    private static func refreshOasisToken(token: String) async throws -> String {
+        let normalized = StepFunTokenNormalizer.normalize(token)
+        guard !normalized.isEmpty else {
+            throw StepFunUsageError.missingToken
+        }
+
+        var request = URLRequest(url: self.refreshTokenURL)
+        request.httpMethod = "POST"
+        request.httpBody = Data("{}".utf8)
+        for (key, value) in self.baseHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        request.setValue(normalized, forHTTPHeaderField: "Oasis-Token")
+        request.setValue(
+            "Oasis-Token=\(normalized); Oasis-Webid=\(self.webID)",
+            forHTTPHeaderField: "Cookie")
+        request.timeoutInterval = self.timeoutSeconds
+
+        let response = try await ProviderHTTPClient.shared.response(for: request)
+        let data = response.data
+        guard response.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            Self.log.error("StepFun RefreshToken returned \(response.statusCode): \(body)")
+            throw StepFunUsageError.tokenRefreshFailed("HTTP \(response.statusCode)")
+        }
+
+        let decoded: StepFunRefreshTokenResponse
+        do {
+            decoded = try JSONDecoder().decode(StepFunRefreshTokenResponse.self, from: data)
+        } catch {
+            throw StepFunUsageError.parseFailed("RefreshToken response: \(error.localizedDescription)")
+        }
+
+        guard let accessToken = decoded.accessToken?.raw, !accessToken.isEmpty else {
+            throw StepFunUsageError.tokenRefreshFailed("No access token in refresh response")
+        }
+
+        return self.combinedToken(accessToken: accessToken, refreshToken: decoded.refreshToken?.raw)
+    }
+
+    private static func combinedToken(accessToken: String, refreshToken: String?) -> String {
+        guard let refreshToken, !refreshToken.isEmpty else {
+            return accessToken
+        }
         return "\(accessToken)...\(refreshToken)"
     }
 
@@ -411,16 +459,12 @@ public struct StepFunUsageFetcher: Sendable {
         request.setValue("Oasis-Token=\(token); Oasis-Webid=\(self.webID)", forHTTPHeaderField: "Cookie")
         request.timeoutInterval = self.timeoutSeconds
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw StepFunUsageError.networkError("Invalid response")
-        }
-
-        guard httpResponse.statusCode == 200 else {
+        let response = try await ProviderHTTPClient.shared.response(for: request)
+        let data = response.data
+        guard response.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            Self.log.error("StepFun API returned \(httpResponse.statusCode): \(body)")
-            throw StepFunUsageError.apiError("HTTP \(httpResponse.statusCode)")
+            Self.log.error("StepFun API returned \(response.statusCode): \(body)")
+            throw StepFunUsageError.apiError("HTTP \(response.statusCode)")
         }
 
         if let jsonString = String(data: data, encoding: .utf8) {
@@ -456,16 +500,15 @@ public struct StepFunUsageFetcher: Sendable {
         request.setValue("Oasis-Token=\(token); Oasis-Webid=\(self.webID)", forHTTPHeaderField: "Cookie")
         request.timeoutInterval = self.timeoutSeconds
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+        let response = try await ProviderHTTPClient.shared.response(for: request)
+        guard response.statusCode == 200 else {
             Self.log.debug("StepFun plan status request failed, skipping plan name")
             return nil
         }
 
         let decoded: StepFunPlanStatusResponse
         do {
-            decoded = try JSONDecoder().decode(StepFunPlanStatusResponse.self, from: data)
+            decoded = try JSONDecoder().decode(StepFunPlanStatusResponse.self, from: response.data)
         } catch {
             Self.log.debug("StepFun plan status parse failed: \(error.localizedDescription)")
             return nil
@@ -487,7 +530,9 @@ public struct StepFunUsageFetcher: Sendable {
         }
 
         guard decoded.isSuccess else {
-            let msg = decoded.message ?? decoded.code.map(String.init) ?? "unknown"
+            let msg = [decoded.message, decoded.desc]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty } ?? decoded.code.map(String.init) ?? "unknown"
             throw StepFunUsageError.apiError(msg)
         }
 
