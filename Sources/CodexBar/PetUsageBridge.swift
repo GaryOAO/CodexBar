@@ -12,10 +12,46 @@ import Foundation
 final class PetUsageBridge {
     private weak var store: UsageStore?
     private weak var settings: SettingsStore?
+    private let now: () -> Date
 
-    init(store: UsageStore, settings: SettingsStore) {
+    init(store: UsageStore, settings: SettingsStore, now: @escaping () -> Date = Date.init) {
         self.store = store
         self.settings = settings
+        self.now = now
+    }
+
+    /// Codex provider snapshot mirroring `snapshot()` but for Codex-only
+    /// data. Returns a `PetCodexStatus` with `unknownPct` when the user
+    /// hasn't authenticated Codex or no data has been fetched yet — that
+    /// teaches the pet to render "—" instead of a wrong number.
+    func codexSnapshot() -> PetCodexStatus {
+        guard let store = self.store else { return PetCodexStatus() }
+        let usage = store.snapshot(for: .codex)
+        let tokens = store.tokenSnapshot(for: .codex)
+
+        let pct5h = self.optionalPct(usage?.primary?.usedPercent)
+        let pctWk = self.optionalPct(usage?.secondary?.usedPercent)
+        let reset5h = self.resetMinutes(usage?.primary?.resetsAt)
+        let resetWk = self.resetMinutes(usage?.secondary?.resetsAt)
+
+        let today = self.todayTokenCount(tokens)
+
+        return PetCodexStatus(
+            usage5hPct: pct5h,
+            usageWeekPct: pctWk,
+            reset5hMinutes: reset5h,
+            resetWeekMinutes: resetWk,
+            todayTokens: today,
+            epochSeconds: UInt32(self.now().timeIntervalSince1970))
+    }
+
+    /// 0..100 clamp that preserves "unknown" as 0xFF when input is nil. Used
+    /// by codexSnapshot so the pet can tell "no Codex auth yet" apart from
+    /// "Codex is at 0%".
+    private func optionalPct(_ value: Double?) -> UInt8 {
+        guard let value, value.isFinite else { return PetCodexStatus.unknownPct }
+        let clamped = max(0, min(100, Int(value.rounded())))
+        return UInt8(clamped)
     }
 
     func snapshot() -> PetStatus {
@@ -28,19 +64,11 @@ final class PetUsageBridge {
         let reset5h = self.resetMinutes(usage?.primary?.resetsAt)
         let resetWk = self.resetMinutes(usage?.secondary?.resetsAt)
 
-        // Today's tokens. CostUsageFetcher.sessionTokens is sourced from
-        // `currentDay?.totalTokens` (the most recent daily bucket) and
-        // already includes cache reads — that's what shows up in CodexBar's
-        // own UI and what the user sees as "today". Use it as the primary
-        // source and only re-derive from the daily array if it's missing.
-        // The ESP32 formatter picks K / M / B so 1B+ days render cleanly.
-        var todayRaw = 0
-        if let sess = tokens?.sessionTokens, sess > 0 {
-            todayRaw = sess
-        } else if let buckets = tokens?.daily {
-            todayRaw = Self.sumTokensForToday(buckets)
-        }
-        let today = UInt32(clamping: todayRaw)
+        // Prefer an exact local-day bucket when present. When the scanner has
+        // not yet emitted a new local-day row, fall back to the snapshot's
+        // current session/latest bucket so Pet matches the rest of CodexBar's
+        // local cost UI semantics.
+        let today = self.todayTokenCount(tokens)
 
         var flags: UInt8 = 0
         if pct5h >= 90 { flags |= PetStatus.flagBitFiveHourWarning }
@@ -61,7 +89,7 @@ final class PetUsageBridge {
             reset5hMinutes: reset5h,
             resetWeekMinutes: resetWk,
             todayTokens: today,
-            epochSeconds: UInt32(Date().timeIntervalSince1970))
+            epochSeconds: UInt32(self.now().timeIntervalSince1970))
     }
 
     /// Translate the user's preference toggles into PetStatus flag bits so
@@ -77,13 +105,24 @@ final class PetUsageBridge {
         if !settings.petMilestoneCelebrationsEnabled { bits |= PetStatus.flagBitMilestonesDisabled }
         if settings.petQuietHoursEnabled,
            Self.isHourInQuietWindow(
-               hour: Calendar.current.component(.hour, from: Date()),
+               hour: Calendar.current.component(.hour, from: self.now()),
                start: settings.petQuietHoursStart,
                end: settings.petQuietHoursEnd)
         {
             bits |= PetStatus.flagBitQuietHoursActive
         }
         return bits
+    }
+
+    private func todayTokenCount(_ tokens: CostUsageTokenSnapshot?) -> UInt32 {
+        guard let tokens else { return 0 }
+        if !tokens.daily.isEmpty {
+            let localToday = Self.sumTokensForToday(tokens.daily, now: self.now())
+            if localToday > 0 {
+                return UInt32(clamping: localToday)
+            }
+        }
+        return UInt32(clamping: max(tokens.sessionTokens ?? 0, 0))
     }
 
     /// Byte 5 stays inside the existing 18-byte payload. Current firmware
@@ -114,7 +153,7 @@ final class PetUsageBridge {
 
     private func resetMinutes(_ resetsAt: Date?) -> UInt16 {
         guard let date = resetsAt else { return PetStatus.unknownReset }
-        let minutes = Int(date.timeIntervalSinceNow / 60)
+        let minutes = Int(date.timeIntervalSince(self.now()) / 60)
         if minutes <= 0 { return 0 }
         return UInt16(min(minutes, 0xFFFE))
     }
@@ -123,16 +162,36 @@ final class PetUsageBridge {
     /// in local time. CostUsageFetcher stores dates as strings — different
     /// providers use different formats ("2026-05-16", "2026-05-16T00:00:00Z",
     /// etc.) — so we match by string prefix on the YYYY-MM-DD portion.
-    private static func sumTokensForToday(_ buckets: [CostUsageDailyReport.Entry]) -> Int {
+    static func sumTokensForToday(_ buckets: [CostUsageDailyReport.Entry], now: Date = Date()) -> Int {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone.current
-        let today = formatter.string(from: Date())
+        let today = formatter.string(from: now)
         return buckets
-            .filter { $0.date.hasPrefix(today) }
+            .filter { Self.dayKey($0.date, formatter: formatter) == today }
             .compactMap(\.totalTokens)
             .reduce(0, +)
+    }
+
+    private static func dayKey(_ text: String, formatter: DateFormatter) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count >= 10 {
+            let prefix = String(trimmed.prefix(10))
+            if prefix.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil {
+                return prefix
+            }
+        }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: trimmed) {
+            return formatter.string(from: date)
+        }
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: trimmed) {
+            return formatter.string(from: date)
+        }
+        return formatter.date(from: trimmed).map { formatter.string(from: $0) }
     }
 }
 #endif

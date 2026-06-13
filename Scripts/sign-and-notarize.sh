@@ -43,6 +43,7 @@ CODEXBAR_WIDGET_METADATA_MODE=required ARCHES="${ARCHES_VALUE}" ./Scripts/packag
 ENTITLEMENTS_DIR="$ROOT/.build/entitlements"
 APP_ENTITLEMENTS="${ENTITLEMENTS_DIR}/CodexBar.entitlements"
 WIDGET_ENTITLEMENTS="${ENTITLEMENTS_DIR}/CodexBarWidget.entitlements"
+PET_HELPER_ENTITLEMENTS="${ENTITLEMENTS_DIR}/CodexBarPetBLEHelper.entitlements"
 
 echo "Signing with $APP_IDENTITY"
 if [[ -f "$APP_BUNDLE/Contents/Helpers/CodexBarCLI" ]]; then
@@ -52,6 +53,14 @@ fi
 if [[ -f "$APP_BUNDLE/Contents/Helpers/CodexBarClaudeWatchdog" ]]; then
   codesign --force --timestamp --options runtime --sign "$APP_IDENTITY" \
     "$APP_BUNDLE/Contents/Helpers/CodexBarClaudeWatchdog"
+fi
+if [[ -d "$APP_BUNDLE/Contents/Helpers/CodexBarPetBLEHelper.app" ]]; then
+  codesign --force --timestamp --options runtime --sign "$APP_IDENTITY" \
+    --entitlements "$PET_HELPER_ENTITLEMENTS" \
+    "$APP_BUNDLE/Contents/Helpers/CodexBarPetBLEHelper.app/Contents/MacOS/CodexBarPetBLEHelper"
+  codesign --force --timestamp --options runtime --sign "$APP_IDENTITY" \
+    --entitlements "$PET_HELPER_ENTITLEMENTS" \
+    "$APP_BUNDLE/Contents/Helpers/CodexBarPetBLEHelper.app"
 fi
 if [[ -d "$APP_BUNDLE/Contents/PlugIns/CodexBarWidget.appex" ]]; then
   codesign --force --timestamp --options runtime --sign "$APP_IDENTITY" \

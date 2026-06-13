@@ -100,6 +100,13 @@ let package = Package(
                     .define("ENABLE_SPARKLE"),
                 ]),
             .executableTarget(
+                name: "CodexBarPetBLEHelper",
+                dependencies: ["CodexBarCore"],
+                path: "Sources/CodexBarPetBLEHelper",
+                swiftSettings: [
+                    .enableUpcomingFeature("StrictConcurrency"),
+                ]),
+            .executableTarget(
                 name: "CodexBarWidget",
                 dependencies: ["CodexBarCore"],
                 path: "Sources/CodexBarWidget",

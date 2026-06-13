@@ -563,6 +563,12 @@ final class UsageStore {
         }
     }
 
+    func refreshPetTokenUsageIfNeeded() async {
+        guard self.settings.petEnabled, self.settings.costUsageEnabled else { return }
+        await self.refreshTokenUsage(.claude, force: true)
+        await self.refreshTokenUsage(.codex, force: true)
+    }
+
     // MARK: - Private
 
     private func bindSettings() {

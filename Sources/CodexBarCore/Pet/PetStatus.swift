@@ -20,7 +20,7 @@ import Foundation
 ///   [8:10] uint16 reset_week_minutes  0xFFFF = unknown
 ///   [10:14] uint32 today_tokens     Claude tokens spent today
 ///   [14:18] uint32 epoch_seconds    current unix time
-public struct PetStatus: Sendable, Equatable {
+public struct PetStatus: Sendable, Equatable, Codable {
     public static let unknownReset: UInt16 = 0xFFFF
     public static let wireSize = 18
 
@@ -102,7 +102,7 @@ public struct PetStatus: Sendable, Equatable {
 /// Pet mode enum mirroring user_app's PetMode. The numeric values must stay
 /// in sync with the C++ enum; if either side reorders, the pet renders the
 /// wrong animation.
-public enum PetMode: UInt8, Sendable {
+public enum PetMode: UInt8, Sendable, Codable {
     case greeting = 0
     case idle = 1
     case thinking = 2
@@ -161,7 +161,7 @@ public enum PetMode: UInt8, Sendable {
 /// orderedProviders(). Values here are stable wire identifiers used in
 /// PetStatus.providerIdx — extending requires bumping nothing because the
 /// pet only displays names from a small fixed catalogue today.
-public enum PetProvider: UInt8, Sendable {
+public enum PetProvider: UInt8, Sendable, Codable {
     case none = 0
     case claude = 1
     case codex = 2
@@ -171,4 +171,148 @@ public enum PetProvider: UInt8, Sendable {
     case openai = 6
     case opencode = 7
     case other = 255
+}
+
+/// Codex-side companion to `PetStatus`. Same 18-byte wire shape so encode
+/// path is shared, but cached in a separate slot on the pet so OVERVIEW /
+/// METRICS / LIVING can show Claude and Codex side-by-side. Setting
+/// `usage5hPct = 0xFF` (or `usageWeekPct = 0xFF`) means "no data yet" and
+/// the pet renders a dash for that cell.
+public struct PetCodexStatus: Sendable, Equatable, Codable {
+    public static let unknownPct: UInt8 = 0xFF
+    public static let wireSize = PetStatus.wireSize
+
+    public var usage5hPct: UInt8
+    public var usageWeekPct: UInt8
+    public var reset5hMinutes: UInt16
+    public var resetWeekMinutes: UInt16
+    public var todayTokens: UInt32
+    public var epochSeconds: UInt32
+
+    public init(
+        usage5hPct: UInt8 = PetCodexStatus.unknownPct,
+        usageWeekPct: UInt8 = PetCodexStatus.unknownPct,
+        reset5hMinutes: UInt16 = PetStatus.unknownReset,
+        resetWeekMinutes: UInt16 = PetStatus.unknownReset,
+        todayTokens: UInt32 = 0,
+        epochSeconds: UInt32 = 0)
+    {
+        self.usage5hPct = usage5hPct
+        self.usageWeekPct = usageWeekPct
+        self.reset5hMinutes = reset5hMinutes
+        self.resetWeekMinutes = resetWeekMinutes
+        self.todayTokens = todayTokens
+        self.epochSeconds = epochSeconds
+    }
+
+    /// Encode to the same 18-byte layout as PetStatus. Fields that don't
+    /// apply to a "codex-only" struct (providerIdx, mode, flags,
+    /// presentation) are zeroed — firmware ignores them on this char.
+    public func encoded() -> Data {
+        var data = Data(capacity: Self.wireSize)
+        data.append(PetProvider.codex.rawValue)
+        data.append(self.usage5hPct)
+        data.append(self.usageWeekPct)
+        data.append(0)                       // mode (unused here)
+        data.append(0)                       // flags (unused here)
+        data.append(0)                       // presentation (unused here)
+        var r5 = self.reset5hMinutes.littleEndian
+        withUnsafeBytes(of: &r5) { data.append(contentsOf: $0) }
+        var rw = self.resetWeekMinutes.littleEndian
+        withUnsafeBytes(of: &rw) { data.append(contentsOf: $0) }
+        var tt = self.todayTokens.littleEndian
+        withUnsafeBytes(of: &tt) { data.append(contentsOf: $0) }
+        var es = self.epochSeconds.littleEndian
+        withUnsafeBytes(of: &es) { data.append(contentsOf: $0) }
+        return data
+    }
+}
+
+/// Display config — small persistable block CodexBar writes to the pet so
+/// the user can pick locale + default layout (and later, more) without re-
+/// flashing firmware. The pet stores it in NVS, so it survives reboots.
+public struct PetDisplayConfig: Sendable, Equatable, Codable {
+    public static let wireSize = 16
+    public static let schemaVersion: UInt8 = 1
+
+    public enum Locale: UInt8, Sendable, Codable, CaseIterable {
+        case english = 0
+        case chinese = 1
+        case symbol  = 2
+
+        public var displayName: String {
+            switch self {
+            case .english: return "English"
+            case .chinese: return "中文 (拼音)"
+            case .symbol:  return "Symbols"
+            }
+        }
+    }
+
+    public enum Layout: UInt8, Sendable, Codable, CaseIterable {
+        case overview = 0
+        case focus    = 1
+        case metrics  = 2
+        case living   = 3
+
+        public var displayName: String {
+            switch self {
+            case .overview: return "Overview"
+            case .focus:    return "Focus"
+            case .metrics:  return "Metrics"
+            case .living:   return "Living"
+            }
+        }
+    }
+
+    public static let flagHideCodex: UInt8 = 0x01
+    public static let flagCompact:   UInt8 = 0x02
+
+    public var version: UInt8
+    public var locale: Locale
+    public var defaultLayout: Layout
+    public var hideCodex: Bool
+    public var compactMode: Bool
+
+    public init(
+        version: UInt8 = PetDisplayConfig.schemaVersion,
+        locale: Locale = .english,
+        defaultLayout: Layout = .overview,
+        hideCodex: Bool = false,
+        compactMode: Bool = false)
+    {
+        self.version = version
+        self.locale = locale
+        self.defaultLayout = defaultLayout
+        self.hideCodex = hideCodex
+        self.compactMode = compactMode
+    }
+
+    public func encoded() -> Data {
+        var data = Data(repeating: 0, count: Self.wireSize)
+        data[0] = self.version
+        data[1] = self.locale.rawValue
+        data[2] = self.defaultLayout.rawValue
+        var flags: UInt8 = 0
+        if self.hideCodex   { flags |= Self.flagHideCodex }
+        if self.compactMode { flags |= Self.flagCompact }
+        data[3] = flags
+        return data
+    }
+
+    public static func decode(_ data: Data) -> PetDisplayConfig? {
+        guard data.count == Self.wireSize else { return nil }
+        let bytes = [UInt8](data)
+        let version = bytes[0]
+        guard version > 0, version <= Self.schemaVersion else { return nil }
+        let locale = Locale(rawValue: bytes[1]) ?? .english
+        let layout = Layout(rawValue: bytes[2]) ?? .overview
+        let flags = bytes[3]
+        return PetDisplayConfig(
+            version: version,
+            locale: locale,
+            defaultLayout: layout,
+            hideCodex: (flags & Self.flagHideCodex) != 0,
+            compactMode: (flags & Self.flagCompact) != 0)
+    }
 }

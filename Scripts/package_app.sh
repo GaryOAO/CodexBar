@@ -10,6 +10,14 @@ LOWER_CONF=$(printf "%s" "$CONF" | tr '[:upper:]' '[:lower:]')
 # Load version info
 source "$ROOT/version.env"
 
+derive_team_id_from_identity() {
+  local identity="$1"
+  security find-certificate -c "$identity" -p 2>/dev/null \
+    | openssl x509 -noout -subject 2>/dev/null \
+    | sed -nE 's/.*OU=([A-Z0-9]{10}).*/\1/p' \
+    | head -1
+}
+
 # Clean build only when explicitly requested (slower).
 if [[ "${CODEXBAR_FORCE_CLEAN:-0}" == "1" ]]; then
   if [[ -d "$ROOT/.build" ]]; then
@@ -290,6 +298,14 @@ if [[ "$SIGNING_MODE" == "adhoc" ]]; then
   AUTO_CHECKS=false
 fi
 WIDGET_BUNDLE_ID="${BUNDLE_ID}.widget"
+PET_HELPER_BUNDLE_ID="${BUNDLE_ID}.petblehelper"
+if [[ -z "${APP_TEAM_ID:-}" && "$SIGNING_MODE" != "adhoc" && "$ALLOW_LLDB" != "1" ]]; then
+  SIGNING_IDENTITY_FOR_TEAM="${APP_IDENTITY:-Developer ID Application: Peter Steinberger (Y5PE65HELJ)}"
+  DERIVED_TEAM_ID=$(derive_team_id_from_identity "$SIGNING_IDENTITY_FOR_TEAM")
+  if [[ -n "$DERIVED_TEAM_ID" ]]; then
+    APP_TEAM_ID="$DERIVED_TEAM_ID"
+  fi
+fi
 APP_TEAM_ID="${APP_TEAM_ID:-Y5PE65HELJ}"
 APP_GROUP_ID="${APP_TEAM_ID}.com.steipete.codexbar"
 if [[ "$BUNDLE_ID" == *".debug"* ]]; then
@@ -298,6 +314,7 @@ fi
 ENTITLEMENTS_DIR="$ROOT/.build/entitlements"
 APP_ENTITLEMENTS="${ENTITLEMENTS_DIR}/CodexBar.entitlements"
 WIDGET_ENTITLEMENTS="${ENTITLEMENTS_DIR}/CodexBarWidget.entitlements"
+PET_HELPER_ENTITLEMENTS="${ENTITLEMENTS_DIR}/CodexBarPetBLEHelper.entitlements"
 mkdir -p "$ENTITLEMENTS_DIR"
 if [[ "$ALLOW_LLDB" == "1" && "$LOWER_CONF" != "debug" ]]; then
   echo "ERROR: CODEXBAR_ALLOW_LLDB requires debug configuration" >&2
@@ -312,6 +329,8 @@ cat > "$APP_ENTITLEMENTS" <<PLIST
     <array>
         <string>${APP_GROUP_ID}</string>
     </array>
+    <key>com.apple.security.device.bluetooth</key>
+    <true/>
     $(if [[ "$ALLOW_LLDB" == "1" ]]; then echo "    <key>com.apple.security.get-task-allow</key><true/>"; fi)
 </dict>
 </plist>
@@ -327,6 +346,22 @@ cat > "$WIDGET_ENTITLEMENTS" <<PLIST
     <array>
         <string>${APP_GROUP_ID}</string>
     </array>
+</dict>
+</plist>
+PLIST
+cat > "$PET_HELPER_ENTITLEMENTS" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>${APP_GROUP_ID}</string>
+    </array>
+    <key>com.apple.security.device.bluetooth</key>
+    <true/>
 </dict>
 </plist>
 PLIST
@@ -356,6 +391,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CodexGitCommit</key><string>${GIT_COMMIT}</string>
     <key>CodexBarTeamID</key><string>${APP_TEAM_ID}</string>
     <key>NSBluetoothAlwaysUsageDescription</key><string>CodexBar uses Bluetooth to send live coding-session status (provider, usage, mode) to the optional ESP32-S3 desktop pet companion.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key><string>CodexBar uses Bluetooth to send live coding-session status (provider, usage, mode) to the optional ESP32-S3 desktop pet companion.</string>
+    <key>NSBluetoothWhileInUseUsageDescription</key><string>CodexBar uses Bluetooth while running to connect to the optional ESP32-S3 desktop pet companion.</string>
 </dict>
 </plist>
 PLIST
@@ -434,6 +471,32 @@ fi
 # Watchdog helper: ensures `claude` probes die when CodexBar crashes/gets killed.
 if [[ -n "$(resolve_binary_path "CodexBarClaudeWatchdog" "${ARCH_LIST[0]}")" ]]; then
   install_binary "CodexBarClaudeWatchdog" "$APP/Contents/Helpers/CodexBarClaudeWatchdog"
+fi
+if [[ -n "$(resolve_binary_path "CodexBarPetBLEHelper" "${ARCH_LIST[0]}")" ]]; then
+  PET_HELPER_APP="$APP/Contents/Helpers/CodexBarPetBLEHelper.app"
+  mkdir -p "$PET_HELPER_APP/Contents/MacOS" "$PET_HELPER_APP/Contents/Resources"
+  cat > "$PET_HELPER_APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>CodexBarPetBLEHelper</string>
+    <key>CFBundleDisplayName</key><string>CodexBar BLE Helper</string>
+    <key>CFBundleIdentifier</key><string>${PET_HELPER_BUNDLE_ID}</string>
+    <key>CFBundleExecutable</key><string>CodexBarPetBLEHelper</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>${MARKETING_VERSION}</string>
+    <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>LSUIElement</key><true/>
+    <key>CodexBarTeamID</key><string>${APP_TEAM_ID}</string>
+    <key>NSBluetoothAlwaysUsageDescription</key><string>CodexBar BLE Helper uses Bluetooth to connect CodexBar to the optional ESP32-S3 RLCD desktop pet companion.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key><string>CodexBar BLE Helper uses Bluetooth to connect CodexBar to the optional ESP32-S3 RLCD desktop pet companion.</string>
+    <key>NSBluetoothWhileInUseUsageDescription</key><string>CodexBar BLE Helper uses Bluetooth while running to connect to the optional ESP32-S3 desktop pet companion.</string>
+</dict>
+</plist>
+PLIST
+  install_binary "CodexBarPetBLEHelper" "$PET_HELPER_APP/Contents/MacOS/CodexBarPetBLEHelper"
 fi
 if [[ -n "$(resolve_binary_path "CodexBarWidget" "${ARCH_LIST[0]}")" ]]; then
   WIDGET_APP="$APP/Contents/PlugIns/CodexBarWidget.appex"
@@ -540,6 +603,14 @@ if [[ -f "${APP}/Contents/Helpers/CodexBarCLI" ]]; then
 fi
 if [[ -f "${APP}/Contents/Helpers/CodexBarClaudeWatchdog" ]]; then
   codesign "${CODESIGN_ARGS[@]}" "${APP}/Contents/Helpers/CodexBarClaudeWatchdog"
+fi
+if [[ -d "${APP}/Contents/Helpers/CodexBarPetBLEHelper.app" ]]; then
+  codesign "${CODESIGN_ARGS[@]}" \
+    --entitlements "$PET_HELPER_ENTITLEMENTS" \
+    "$APP/Contents/Helpers/CodexBarPetBLEHelper.app/Contents/MacOS/CodexBarPetBLEHelper"
+  codesign "${CODESIGN_ARGS[@]}" \
+    --entitlements "$PET_HELPER_ENTITLEMENTS" \
+    "$APP/Contents/Helpers/CodexBarPetBLEHelper.app"
 fi
 
 # Sign widget extension if present

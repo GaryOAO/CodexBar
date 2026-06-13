@@ -47,7 +47,12 @@ public enum MistralCookieImporter {
         for browserSource in installedBrowsers {
             do {
                 let query = BrowserCookieQuery(domains: self.cookieDomains)
-                let sources = try Self.cookieClient.records(
+                // Local-patch (2026-05-17): route through codexBarRecords so
+                // the BrowserCookieAccessGate master opt-in / cooldown logic
+                // applies. The previous direct .records call bypassed the
+                // gate and triggered Chrome Safe Storage prompts on every
+                // refresh tick.
+                let sources = try Self.cookieClient.codexBarRecords(
                     matching: query,
                     in: browserSource,
                     logger: log)

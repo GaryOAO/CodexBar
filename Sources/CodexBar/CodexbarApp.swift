@@ -1,5 +1,6 @@
 import AppKit
 import CodexBarCore
+@preconcurrency import CoreBluetooth
 import KeyboardShortcuts
 import Observation
 import QuartzCore
@@ -361,9 +362,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hookReceiver: HookEventReceiver?
     private var hookConsumerTask: Task<Void, Never>?
     private var petClient: PetBLEClient?
+    private var petHelperProxy: PetBLEHelperProxy?
     private var petBridge: PetUsageBridge?
     private var petPushTimer: Timer?
+    private var petUsagePushTask: Task<Void, Never>?
+    private var petTokenRefreshTask: Task<Void, Never>?
+    private var petLastTokenRefreshRequestAt: Date?
     private var petLastMode: UInt8 = PetMode.idle.rawValue
+    private var petBluetoothPermissionTask: Task<Void, Never>?
 
     func configure(_ dependencies: Dependencies) {
         self.store = dependencies.store
@@ -373,6 +379,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.managedCodexAccountCoordinator = dependencies.managedCodexAccountCoordinator
         self.codexAccountPromotionCoordinator = dependencies.codexAccountPromotionCoordinator
         self.petBridge = PetUsageBridge(store: dependencies.store, settings: dependencies.settings)
+        PetSharedAccess.requestForegroundStart = { [weak self] in
+            self?.requestPetForegroundStart()
+        }
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -396,6 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.hasInstalledWeeklyLimitResetObserver = true
         }
         self.observePetSettingsChanges()
+        self.observePetUsageChanges()
         self.reconcilePetRuntime()
     }
 
@@ -427,14 +437,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func observePetUsageChanges() {
+        guard let store = self.store else { return }
+        withObservationTracking {
+            _ = store.menuObservationToken
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.observePetUsageChanges()
+                self.schedulePetStatusPushSoon()
+            }
+        }
+    }
+
+    private func schedulePetStatusPushSoon() {
+        guard self.settings?.petEnabled == true else { return }
+        guard self.petClient != nil || self.petHelperProxy != nil else { return }
+        self.petUsagePushTask?.cancel()
+        self.petUsagePushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            self?.pushPetStatusPeriodic()
+        }
+    }
+
     private func reconcilePetRuntime() {
         guard self.settings?.petEnabled == true else {
+            UserDefaults.standard.set("disabled: petEnabled=false", forKey: "petRuntimeDetail")
             self.stopPetRuntime()
             return
+        }
+        UserDefaults.standard.set("enabled: starting runtime", forKey: "petRuntimeDetail")
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+        let shouldPresentBluetoothPermission = CBManager.authorization == .notDetermined
+            && self.shouldPresentPetBluetoothPermissionUI()
+        if shouldPresentBluetoothPermission {
+            self.showPetSettingsForBluetoothPermission()
         }
         self.startHookReceiverIfNeeded()
         self.startPetClientIfNeeded()
         self.reschedulePetPushTimer()
+        if shouldPresentBluetoothPermission {
+            UserDefaults.standard.set(
+                "BLE helper started; waiting for macOS Bluetooth authorization",
+                forKey: "petRuntimeDetail")
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+        }
         self.pushPetStatusPeriodic()
     }
 
@@ -476,22 +524,199 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startPetClientIfNeeded() {
+        guard self.petClient == nil, self.petHelperProxy == nil else { return }
+        if let helperURL = self.petBLEHelperAppURL() {
+            self.startPetHelperIfNeeded(helperURL: helperURL)
+            return
+        }
+        self.startDirectPetClientIfNeeded()
+    }
+
+    private func startPetHelperIfNeeded(helperURL: URL) {
+        guard self.petHelperProxy == nil else { return }
+        UserDefaults.standard.set("launching sandboxed Pet BLE helper", forKey: "petRuntimeDetail")
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+        let proxy = PetBLEHelperProxy()
+        self.petHelperProxy = proxy
+        PetSharedAccess.helper = proxy
+        PetSharedAccess.client = nil
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.openApplication(at: helperURL, configuration: configuration) { _, error in
+            Task { @MainActor in
+                if let error {
+                    UserDefaults.standard.set(
+                        "helper launch failed: \(error.localizedDescription); using direct BLE fallback",
+                        forKey: "petRuntimeDetail")
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+                    self.petHelperProxy = nil
+                    PetSharedAccess.helper = nil
+                    self.startDirectPetClientIfNeeded()
+                    self.reschedulePetPushTimer()
+                    self.pushPetStatusPeriodic()
+                    return
+                }
+                UserDefaults.standard.set("helper launched; starting BLE scan", forKey: "petRuntimeDetail")
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+                proxy.start()
+                proxy.requestSnapshot()
+            }
+        }
+    }
+
+    private func startDirectPetClientIfNeeded() {
         guard self.petClient == nil else { return }
+        UserDefaults.standard.set("creating PetBLEClient", forKey: "petRuntimeDetail")
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
         // Start the BLE central too. It scans for "ClawdPet" + the pet
         // service UUID; if no pet is present nothing bad happens (logs a
         // warning when Bluetooth itself is off). When the pet shows up,
         // subsequent hook events get pushed as PetStatus writes.
         let pet = PetBLEClient()
+        pet.onStateChange = { state in
+            let detail = switch state {
+            case .off:
+                "BLE runtime stopped"
+            case .authorizing:
+                "BLE waiting for macOS Bluetooth authorization"
+            case .permissionRequired:
+                "BLE needs macOS Bluetooth permission"
+            case .scanning:
+                "BLE scanning for ClawdPet"
+            case .connecting:
+                "BLE connecting to ClawdPet"
+            case .ready:
+                "BLE connected to ClawdPet"
+            }
+            UserDefaults.standard.set(detail, forKey: "petRuntimeDetail")
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+        }
         pet.start()
         self.petClient = pet
         PetSharedAccess.client = pet
+        PetSharedAccess.helper = nil
+    }
+
+    private func petBLEHelperAppURL() -> URL? {
+        let url = Bundle.main.bundleURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Helpers", isDirectory: true)
+            .appendingPathComponent("CodexBarPetBLEHelper.app", isDirectory: true)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private func requestPetForegroundStart() {
+        guard self.settings?.petEnabled == true else {
+            UserDefaults.standard.set("foreground request ignored: pet disabled", forKey: "petRuntimeDetail")
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+            return
+        }
+        let needsAuthorization = CBManager.authorization == .notDetermined
+        NSApp.activate(ignoringOtherApps: true)
+        self.showPetSettingsForBluetoothPermission(startAfterOpening: false)
+        UserDefaults.standard.set("foreground BLE authorization/connect request", forKey: "petRuntimeDetail")
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+        self.startHookReceiverIfNeeded()
+        if needsAuthorization {
+            self.presentPetBluetoothPrimerThenStart()
+        } else {
+            self.restartPetClientFromForegroundContext()
+        }
+    }
+
+    private func restartPetClientFromForegroundContext() {
+        if let helper = self.petHelperProxy {
+            helper.restartForForegroundAuthorization()
+        } else if let client = self.petClient {
+            client.restartForForegroundAuthorization()
+        } else {
+            self.startPetClientIfNeeded()
+        }
+        self.reschedulePetPushTimer()
+        self.pushPetStatusPeriodic()
+    }
+
+    private func presentPetBluetoothPrimerThenStart() {
+        // This path is user-initiated from the visible Pet pane. Some macOS
+        // builds do not materialize a Bluetooth TCC prompt from a menu-bar
+        // process even after NSApp activation. A real AppKit modal gives the
+        // system an explicit foreground user gesture before CoreBluetooth is
+        // touched again.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "允许 CodexBar 连接桌宠"
+        alert.informativeText = """
+        点击“继续授权”后，CodexBar 会立即请求 macOS 蓝牙权限并扫描 ClawdPet。\
+        如果系统随后弹出蓝牙权限，请选择允许。
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "继续授权")
+        alert.addButton(withTitle: "取消")
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else {
+            UserDefaults.standard.set("foreground BLE authorization cancelled", forKey: "petRuntimeDetail")
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+            return
+        }
+        UserDefaults.standard.set("foreground BLE authorization request started", forKey: "petRuntimeDetail")
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+        self.restartPetClientFromForegroundContext()
+    }
+
+    private func showPetSettingsForBluetoothPermission(startAfterOpening: Bool = true) {
+        if self.petBluetoothPermissionTask != nil { return }
+        self.petBluetoothPermissionTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let self else { return }
+            defer { self.petBluetoothPermissionTask = nil }
+            self.preferencesSelection?.tab = .pet
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+            NotificationCenter.default.post(
+                name: .codexbarOpenSettings,
+                object: nil,
+                userInfo: ["tab": PreferencesTab.pet.rawValue])
+            UserDefaults.standard.set(
+                Date().timeIntervalSince1970,
+                forKey: "petBluetoothPermissionPromptLastShownAt")
+            UserDefaults.standard.set(
+                "show pet settings via openSettings notification",
+                forKey: "petRuntimeDetail")
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "petRuntimeUpdatedAt")
+            // Let SwiftUI's Settings scene materialize before CoreBluetooth
+            // asks macOS for Bluetooth authorization. In this menu-bar app the
+            // direct AppKit selectors are unreliable, while the hidden
+            // lifecycle window already owns the correct `openSettings`
+            // environment action.
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if startAfterOpening {
+                if let helper = self.petHelperProxy {
+                    helper.restartForForegroundAuthorization()
+                } else if let client = self.petClient {
+                    client.restartForForegroundAuthorization()
+                } else {
+                    self.startPetClientIfNeeded()
+                }
+            }
+        }
+    }
+
+    private func shouldPresentPetBluetoothPermissionUI() -> Bool {
+        // While CoreBluetooth authorization is still undetermined, never fall
+        // back to a quiet background manager from the menu-bar process. That
+        // path can get stuck with central.state == .unknown and no TCC record.
+        // Always surface the foreground Pet pane so macOS has a normal app UI
+        // context for its Bluetooth permission sheet.
+        true
     }
 
     private func reschedulePetPushTimer() {
         self.petPushTimer?.invalidate()
         self.petPushTimer = nil
         guard self.settings?.petEnabled == true else { return }
-        guard self.petClient != nil, self.petBridge != nil else { return }
+        guard self.petClient != nil || self.petHelperProxy != nil, self.petBridge != nil else { return }
         // Periodically refresh the slow fields (5h%, week%, today_tokens,
         // epoch) so the pet's right-side dashboard isn't frozen between
         // hook events. The interval is user-configurable in Preferences;
@@ -506,13 +731,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func stopPetRuntime() {
         self.petPushTimer?.invalidate()
         self.petPushTimer = nil
+        self.petUsagePushTask?.cancel()
+        self.petUsagePushTask = nil
+        self.petTokenRefreshTask?.cancel()
+        self.petTokenRefreshTask = nil
+        self.petLastTokenRefreshRequestAt = nil
         self.hookConsumerTask?.cancel()
         self.hookConsumerTask = nil
         self.hookReceiver?.stop()
         self.hookReceiver = nil
+        self.petHelperProxy?.stop()
+        self.petHelperProxy = nil
         self.petClient?.stop()
         self.petClient = nil
+        PetSharedAccess.helper = nil
         PetSharedAccess.client = nil
+        PetSharedAccess.requestForegroundStart = { [weak self] in
+            self?.requestPetForegroundStart()
+        }
         self.petLastMode = PetMode.idle.rawValue
     }
 
@@ -534,14 +770,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var status = snapshot
         status.mode = mode.rawValue
         status.epochSeconds = UInt32(Date().timeIntervalSince1970)
-        self.petClient?.pushStatus(status)
+        // Piggy-back Codex on every hook event too — even though hooks come
+        // from Claude (Codex's CLI emits its own hook stream when used), the
+        // user expects "CX" to stay fresh while they switch between CLIs.
+        if let bridge = self.petBridge {
+            self.sendPetStatuses(status, codexStatus: bridge.codexSnapshot())
+        } else {
+            self.sendPetStatus(status)
+        }
     }
 
     private func pushPetStatusPeriodic() {
-        guard let client = self.petClient, let bridge = self.petBridge else { return }
+        guard let bridge = self.petBridge else { return }
+        self.refreshPetTokenUsageIfNeeded()
         var status = bridge.snapshot()
         status.mode = self.petLastMode
-        client.pushStatus(status)
+        // Codex data rides the same cadence as Claude. The pet caches both
+        // independently and renders side-by-side; sending whenever Claude
+        // updates keeps the two columns time-aligned without a separate
+        // dispatch timer.
+        self.sendPetStatuses(status, codexStatus: bridge.codexSnapshot())
+    }
+
+    private func refreshPetTokenUsageIfNeeded() {
+        guard let store = self.store, self.settings?.petEnabled == true else { return }
+        guard self.petTokenRefreshTask == nil else { return }
+        let now = Date()
+        if let last = self.petLastTokenRefreshRequestAt, now.timeIntervalSince(last) < 30 {
+            return
+        }
+        self.petLastTokenRefreshRequestAt = now
+        self.petTokenRefreshTask = Task { @MainActor [weak self, weak store] in
+            await store?.refreshPetTokenUsageIfNeeded()
+            self?.petTokenRefreshTask = nil
+        }
+    }
+
+    private func sendPetStatus(_ status: PetStatus) {
+        if let helper = self.petHelperProxy {
+            helper.pushStatus(status)
+            return
+        }
+        self.petClient?.pushStatus(status)
+    }
+
+    private func sendCodexStatus(_ status: PetCodexStatus) {
+        if let helper = self.petHelperProxy {
+            helper.pushCodexStatus(status)
+            return
+        }
+        self.petClient?.pushCodexStatus(status)
+    }
+
+    private func sendPetStatuses(_ status: PetStatus, codexStatus: PetCodexStatus) {
+        if let helper = self.petHelperProxy {
+            helper.pushProviderStatuses(status, codexStatus: codexStatus)
+            return
+        }
+        self.petClient?.pushStatus(status)
+        self.petClient?.pushCodexStatus(codexStatus)
     }
 
     func runProviderLoginFlow(_ provider: UsageProvider) async {

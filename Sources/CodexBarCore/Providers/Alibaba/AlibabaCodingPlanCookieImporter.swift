@@ -336,6 +336,17 @@ private enum AlibabaChromiumCookieFallbackImporter {
     }
 
     private static func derivedKeys(for browser: Browser) throws -> [Data] {
+        // Local-patch (2026-05-17): respect the user-facing master opt-in.
+        // Without this, the preflight returns .notFound when KeychainAccessGate
+        // is disabled and the loop falls through to safeStoragePassword(),
+        // which calls SecItemCopyMatching with no gate — producing the
+        // "wants to use Chrome Safe Storage" prompt anyway.
+        guard !KeychainAccessGate.isDisabled else { return [] }
+        guard UserDefaults.standard.bool(
+            forKey: BrowserCookieAccessGate.manualOptInDefaultsKey
+        ) else {
+            return []
+        }
         var keys: [Data] = []
         var sawDenied = false
 

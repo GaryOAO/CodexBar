@@ -1,0 +1,3 @@
+"NSBluetoothAlwaysUsageDescription" = "CodexBar 使用蓝牙连接可选的 ESP32-S3 桌宠，把当前编码会话状态、用量和模式发送到桌宠屏幕。";
+"NSBluetoothPeripheralUsageDescription" = "CodexBar 使用蓝牙连接可选的 ESP32-S3 桌宠，把当前编码会话状态、用量和模式发送到桌宠屏幕。";
+"NSBluetoothWhileInUseUsageDescription" = "CodexBar 运行时会通过蓝牙连接可选的 ESP32-S3 桌宠。";
