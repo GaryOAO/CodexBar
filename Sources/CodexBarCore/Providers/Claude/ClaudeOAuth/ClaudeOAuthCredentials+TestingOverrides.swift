@@ -125,28 +125,6 @@ extension ClaudeOAuthCredentialsStore {
         let credentialsFileFingerprintStore: CredentialsFileFingerprintStore?
         let securityCLIReadOverride: SecurityCLIReadOverride?
         let securityCLIReadAccountOverride: String?
-
-        init(
-            keychainOverrideStore: ClaudeKeychainOverrideStore?,
-            keychainData: Data?,
-            keychainFingerprint: ClaudeKeychainFingerprint?,
-            memoryCacheStore: MemoryCacheStore?,
-            fingerprintStore: ClaudeKeychainFingerprintStore?,
-            keychainAccessOverride: Bool?,
-            credentialsFileFingerprintStore: CredentialsFileFingerprintStore?,
-            securityCLIReadOverride: SecurityCLIReadOverride?,
-            securityCLIReadAccountOverride: String?)
-        {
-            self.keychainOverrideStore = keychainOverrideStore
-            self.keychainData = keychainData
-            self.keychainFingerprint = keychainFingerprint
-            self.memoryCacheStore = memoryCacheStore
-            self.fingerprintStore = fingerprintStore
-            self.keychainAccessOverride = keychainAccessOverride
-            self.credentialsFileFingerprintStore = credentialsFileFingerprintStore
-            self.securityCLIReadOverride = securityCLIReadOverride
-            self.securityCLIReadAccountOverride = securityCLIReadAccountOverride
-        }
     }
 
     static func withKeychainAccessOverrideForTesting<T>(
