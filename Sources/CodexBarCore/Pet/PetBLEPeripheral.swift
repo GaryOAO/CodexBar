@@ -141,7 +141,7 @@ extension PetBLEPeripheral: CBPeripheralManagerDelegate {
             peripheral.respond(to: request, withResult: .invalidOffset)
             return
         }
-        request.value = value.subdata(in: request.offset ..< value.count)
+        request.value = value.subdata(in: request.offset..<value.count)
         peripheral.respond(to: request, withResult: .success)
     }
 }

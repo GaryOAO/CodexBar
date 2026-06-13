@@ -213,9 +213,9 @@ public struct PetCodexStatus: Sendable, Equatable, Codable {
         data.append(PetProvider.codex.rawValue)
         data.append(self.usage5hPct)
         data.append(self.usageWeekPct)
-        data.append(0)                       // mode (unused here)
-        data.append(0)                       // flags (unused here)
-        data.append(0)                       // presentation (unused here)
+        data.append(0) // mode (unused here)
+        data.append(0) // flags (unused here)
+        data.append(0) // presentation (unused here)
         var r5 = self.reset5hMinutes.littleEndian
         withUnsafeBytes(of: &r5) { data.append(contentsOf: $0) }
         var rw = self.resetWeekMinutes.littleEndian
@@ -238,35 +238,35 @@ public struct PetDisplayConfig: Sendable, Equatable, Codable {
     public enum Locale: UInt8, Sendable, Codable, CaseIterable {
         case english = 0
         case chinese = 1
-        case symbol  = 2
+        case symbol = 2
 
         public var displayName: String {
             switch self {
-            case .english: return "English"
-            case .chinese: return "中文 (拼音)"
-            case .symbol:  return "Symbols"
+            case .english: "English"
+            case .chinese: "中文 (拼音)"
+            case .symbol: "Symbols"
             }
         }
     }
 
     public enum Layout: UInt8, Sendable, Codable, CaseIterable {
         case overview = 0
-        case focus    = 1
-        case metrics  = 2
-        case living   = 3
+        case focus = 1
+        case metrics = 2
+        case living = 3
 
         public var displayName: String {
             switch self {
-            case .overview: return "Overview"
-            case .focus:    return "Focus"
-            case .metrics:  return "Metrics"
-            case .living:   return "Living"
+            case .overview: "Overview"
+            case .focus: "Focus"
+            case .metrics: "Metrics"
+            case .living: "Living"
             }
         }
     }
 
     public static let flagHideCodex: UInt8 = 0x01
-    public static let flagCompact:   UInt8 = 0x02
+    public static let flagCompact: UInt8 = 0x02
 
     public var version: UInt8
     public var locale: Locale
@@ -294,14 +294,14 @@ public struct PetDisplayConfig: Sendable, Equatable, Codable {
         data[1] = self.locale.rawValue
         data[2] = self.defaultLayout.rawValue
         var flags: UInt8 = 0
-        if self.hideCodex   { flags |= Self.flagHideCodex }
+        if self.hideCodex { flags |= Self.flagHideCodex }
         if self.compactMode { flags |= Self.flagCompact }
         data[3] = flags
         return data
     }
 
     public static func decode(_ data: Data) -> PetDisplayConfig? {
-        guard data.count == Self.wireSize else { return nil }
+        guard data.count == self.wireSize else { return nil }
         let bytes = [UInt8](data)
         let version = bytes[0]
         guard version > 0, version <= Self.schemaVersion else { return nil }

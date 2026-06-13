@@ -29,7 +29,7 @@ public enum BrowserCookieAccessGate {
         guard browser.usesKeychainForCookieDecryption else { return true }
         guard !KeychainAccessGate.isDisabled else { return false }
         // Master opt-in gate (default false = no automatic keychain prompts).
-        guard UserDefaults.standard.bool(forKey: Self.manualOptInDefaultsKey) else {
+        guard UserDefaults.standard.bool(forKey: self.manualOptInDefaultsKey) else {
             self.log.debug(
                 "Browser cookie auto-import disabled (opt-in)",
                 metadata: ["browser": browser.displayName])

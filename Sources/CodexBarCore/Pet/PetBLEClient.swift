@@ -254,7 +254,7 @@ public final class PetBLEClient: NSObject, @unchecked Sendable {
     }
 
     public func snapshot(runtimeDetail: String? = nil) -> PetBLESnapshot {
-        return PetBLESnapshot(
+        PetBLESnapshot(
             state: String(describing: self.state),
             authorizationRawValue: CBManager.authorization.rawValue,
             runtimeDetail: runtimeDetail ?? (UserDefaults.standard.string(forKey: "petBleRuntimeDetail") ?? "—"),
@@ -391,7 +391,7 @@ public final class PetBLEClient: NSObject, @unchecked Sendable {
 
     private func startScanIfReady(skipRecovery: Bool = false) {
         guard let c = self.central, c.state == .poweredOn else { return }
-        
+
         if !skipRecovery {
             // 1. Try to recover a lingering connected peripheral.
             let connected = c.retrieveConnectedPeripherals(withServices: [Self.serviceUUID])
@@ -484,10 +484,10 @@ extension PetBLEClient: CBCentralManagerDelegate {
         self.recordDiagnostic("discover: \(name) rssi=\(RSSI) service=\(hasPetService)")
         self.log.info("discovered \(name) rssi=\(RSSI)")
         central.stopScan()
-        
+
         // Save identifier for direct reconnection next time
         UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: "petBleLastPeripheralUUID")
-        
+
         self.connect(peripheral, recovered: false, reason: "discovered")
     }
 

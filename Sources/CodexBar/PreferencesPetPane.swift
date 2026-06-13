@@ -121,7 +121,8 @@ struct PetPane: View {
                             }
                             .disabled(!self.settings.petEnabled)
 
-                            Text("ClawdPet 通常不会出现在系统蓝牙设备列表；这里显示“已连接”才是准确信号。若系统没有弹出权限，请允许 CodexBar 或 CodexBar BLE Helper 使用蓝牙。")
+                            Text(
+                                "ClawdPet 通常不会出现在系统蓝牙设备列表；这里显示“已连接”才是准确信号。若系统没有弹出权限，请允许 CodexBar 或 CodexBar BLE Helper 使用蓝牙。")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                             Spacer()
@@ -332,10 +333,12 @@ struct PetPane: View {
                             .pickerStyle(.segmented)
                             .labelsHidden()
 
-                            Toggle("隐藏 Codex 列（单 provider 模式）",
-                                   isOn: self.$displayHideCodex)
-                            Toggle("紧凑模式（更小的字 / 间距）",
-                                   isOn: self.$displayCompact)
+                            Toggle(
+                                "隐藏 Codex 列（单 provider 模式）",
+                                isOn: self.$displayHideCodex)
+                            Toggle(
+                                "紧凑模式（更小的字 / 间距）",
+                                isOn: self.$displayCompact)
 
                             HStack {
                                 Button("应用到桌宠") { self.applyDisplayConfig() }
@@ -599,7 +602,7 @@ struct PetPane: View {
     }
 
     private func relativeTime(_ date: Date) -> String {
-        return Self.relativeTimeFormatter.localizedString(for: date, relativeTo: Date())
+        Self.relativeTimeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
     private func requestForegroundBluetoothStart() {

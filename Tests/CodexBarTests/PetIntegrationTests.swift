@@ -214,7 +214,9 @@ struct PetIntegrationTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         let container = FileManager.default.temporaryDirectory
-            .appendingPathComponent("PetIntegrationTests-helper-provider-statuses-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(
+                "PetIntegrationTests-helper-provider-statuses-\(UUID().uuidString)",
+                isDirectory: true)
         try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: container) }
         let proxy = PetBLEHelperProxy(defaults: defaults, containerURL: container)

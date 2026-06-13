@@ -135,6 +135,7 @@ public enum PetBLEIPCBridge {
     }
 }
 
+#if os(macOS)
 public final class PetBLEHelperProxy: @unchecked Sendable {
     private let defaults: UserDefaults
     private let containerURL: URL?
@@ -243,3 +244,4 @@ public final class PetBLEHelperProxy: @unchecked Sendable {
         return self.defaults.data(forKey: defaultsKey)
     }
 }
+#endif

@@ -343,8 +343,8 @@ private enum AlibabaChromiumCookieFallbackImporter {
         // "wants to use Chrome Safe Storage" prompt anyway.
         guard !KeychainAccessGate.isDisabled else { return [] }
         guard UserDefaults.standard.bool(
-            forKey: BrowserCookieAccessGate.manualOptInDefaultsKey
-        ) else {
+            forKey: BrowserCookieAccessGate.manualOptInDefaultsKey)
+        else {
             return []
         }
         var keys: [Data] = []

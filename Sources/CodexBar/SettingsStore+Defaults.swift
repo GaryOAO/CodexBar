@@ -794,6 +794,7 @@ extension SettingsStore {
         get { PetPersonality(rawValue: self.petPersonalityRaw) ?? .playful }
         set { self.petPersonalityRaw = newValue.rawValue }
     }
+
     var terminalApp: TerminalApp {
         get { TerminalApp(rawValue: self.defaultsState.terminalAppRaw ?? "") ?? .terminal }
         set {
