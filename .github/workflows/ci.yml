@@ -42,8 +42,12 @@ jobs:
 
       - name: Swift Test
         timeout-minutes: 60
+        # Batch suites into groups instead of one-invocation-per-suite. The fork's extra
+        # pet/BLE suites push the per-suite count (~429) past the 60-min wall clock at
+        # group-size 1 (~9s of build-graph/discovery overhead per invocation). The script
+        # still isolates a genuinely hung suite by retrying a timed-out group one at a time.
         run: |
-          python3 Scripts/ci_swift_test_by_suite.py --group-size 1 --timeout 120
+          python3 Scripts/ci_swift_test_by_suite.py --group-size 8 --timeout 300
 
   build-linux-cli:
     timeout-minutes: 20
