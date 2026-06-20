@@ -1158,7 +1158,7 @@ extension UsageStore {
             return
         }
 
-        guard self.settings.costUsageEnabled else {
+        guard self.settings.isCostUsageEffectivelyEnabled(for: provider) else {
             self.tokenSnapshots.removeValue(forKey: provider)
             self.tokenErrors[provider] = nil
             self.tokenFailureGates[provider]?.reset()

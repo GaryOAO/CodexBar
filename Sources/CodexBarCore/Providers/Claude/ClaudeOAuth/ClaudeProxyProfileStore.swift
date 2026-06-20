@@ -150,6 +150,25 @@ public enum ClaudeProxyProfileStore {
         return self.hydrate(selected)
     }
 
+    /// The proxy (baseURL + token) to actually use, requiring both fields.
+    /// Prefers a configured profile; otherwise falls back to the local Claude
+    /// Code settings (`~/.claude/settings.json`) so a machine that already routes
+    /// Claude Code through the proxy needs zero CodexBar setup — important for the
+    /// multi-machine cross-machine-cost use case.
+    public static func effectiveProxy() -> (baseURL: String, token: String)? {
+        if let profile = self.activeProfile() {
+            let baseURL = profile.trimmedBaseURL
+            let token = profile.trimmedToken
+            if !baseURL.isEmpty, !token.isEmpty {
+                return (baseURL, token)
+            }
+        }
+        if let auto = self.resolveAutoConfig(), !auto.baseURL.isEmpty, !auto.token.isEmpty {
+            return (auto.baseURL, auto.token)
+        }
+        return nil
+    }
+
     private static func migrateLegacyIfNeeded() {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: self.migrationFlagDefaultsKey) else { return }

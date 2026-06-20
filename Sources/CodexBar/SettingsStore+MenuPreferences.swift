@@ -92,8 +92,20 @@ extension SettingsStore {
     }
 
     func isCostUsageEffectivelyEnabled(for provider: UsageProvider) -> Bool {
-        self.costUsageEnabled
-            && ProviderDescriptorRegistry.descriptor(for: provider).tokenCost.supportsTokenCost
+        guard ProviderDescriptorRegistry.descriptor(for: provider).tokenCost.supportsTokenCost else {
+            return false
+        }
+        // Claude cost via the proxy is a remote cross-machine total (not a local log
+        // scan), so it lights up whenever a proxy profile is active — independent of
+        // the local cost-usage toggle.
+        if provider == .claude, Self.isClaudeProxyCostActive() {
+            return true
+        }
+        return self.costUsageEnabled
+    }
+
+    static func isClaudeProxyCostActive() -> Bool {
+        ClaudeProxyProfileStore.effectiveProxy() != nil
     }
 
     var resetTimeDisplayStyle: ResetTimeDisplayStyle {

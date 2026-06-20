@@ -106,6 +106,22 @@ public struct CostUsageFetcher: Sendable {
             throw CostUsageError.unsupportedProvider(provider)
         }
 
+        // Claude cost takeover: when a proxy profile is active, the claude-oauth-proxy
+        // aggregates this key's usage across every machine. Prefer that cross-machine
+        // total over the per-machine local `~/.claude` log scan. Fall back to the local
+        // scan if the proxy is unreachable so the card never goes blank.
+        if provider == .claude, let proxy = ClaudeProxyProfileStore.effectiveProxy() {
+            do {
+                return try await ClaudeProxyUsageFetcher.loadProxyTokenSnapshot(
+                    baseURL: proxy.baseURL,
+                    token: proxy.token,
+                    historyDays: historyDays,
+                    now: now)
+            } catch {
+                // Proxy unreachable — degrade to the local scan below.
+            }
+        }
+
         let until = now
         let clampedHistoryDays = max(1, min(365, historyDays))
         // Rolling window is inclusive, so a 30-day display starts 29 days before `now`.
