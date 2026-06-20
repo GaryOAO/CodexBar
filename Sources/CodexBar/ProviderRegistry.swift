@@ -74,12 +74,8 @@ struct ProviderRegistry {
                                     token: token)
                             }
                         },
-                        providerManualTokenUpdater: { provider, token in
-                            await MainActor.run {
-                                if provider == .stepfun {
-                                    settings.stepfunToken = token
-                                }
-                            }
+                        providerManualTokenUpdater: { _, _ in
+                            await MainActor.run {}
                         },
                         costUsageHistoryDays: settings.costUsageHistoryDays,
                         persistsCLISessions: true,

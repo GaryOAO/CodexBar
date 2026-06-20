@@ -26,7 +26,6 @@ extension UsageMenuCardView.Model {
             "dashboard=\(self.inlineUsageDashboard?.heightFingerprint ?? "")",
             "providerCost=\(self.providerCost?.heightFingerprint ?? "")",
             "tokenUsage=\(self.tokenUsage?.heightFingerprint ?? "")",
-            "openaiAPI=\(self.openAIAPIUsage == nil ? "0" : "1")",
         ] + additional)
     }
 

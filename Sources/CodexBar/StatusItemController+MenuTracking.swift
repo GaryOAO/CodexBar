@@ -341,12 +341,6 @@ extension StatusItemController {
                 }
             }
 
-            if target == .kilo {
-                for scopeSnapshot in self.store.kiloScopeSnapshots {
-                    parts.append(Self.menuIdentityField(scopeSnapshot.id))
-                    parts.append(self.providerIdentitySignature(scopeSnapshot.snapshot?.identity(for: target)))
-                }
-            }
         }
         return parts.joined(separator: "|")
     }

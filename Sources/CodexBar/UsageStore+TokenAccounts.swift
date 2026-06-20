@@ -674,7 +674,6 @@ extension UsageStore {
         let verbose = self.settings.isVerboseLoggingEnabled
         let contextProvider = provider
         let originalAccountToken = account?.token
-        let originalManualToken = provider == .stepfun ? self.settings.stepfunToken : nil
         return ProviderFetchContext(
             runtime: .app,
             sourceMode: sourceMode,
@@ -701,14 +700,6 @@ extension UsageStore {
                         provider: provider,
                         accountID: accountID,
                         token: token)
-                }
-            },
-            providerManualTokenUpdater: { [weak self] provider, token in
-                await MainActor.run {
-                    guard let self, provider == .stepfun,
-                          self.settings.stepfunToken == originalManualToken
-                    else { return }
-                    self.settings.stepfunToken = token
                 }
             },
             costUsageHistoryDays: self.settings.costUsageHistoryDays,

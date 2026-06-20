@@ -28,14 +28,7 @@ public struct CodexBarConfigIssue: Codable, Sendable, Equatable {
 }
 
 public enum CodexBarConfigValidator {
-    private static let workspaceIDProviders: [UsageProvider] = [
-        .azureopenai,
-        .openai,
-        .opencode,
-        .opencodego,
-        .devin,
-        .deepgram,
-    ]
+    private static let workspaceIDProviders: [UsageProvider] = []
 
     public static func validate(_ config: CodexBarConfig) -> [CodexBarConfigIssue] {
         var issues: [CodexBarConfigIssue] = []
@@ -147,7 +140,7 @@ public enum CodexBarConfigValidator {
                 provider: provider,
                 field: "workspaceID",
                 code: "workspace_unused",
-                message: "workspaceID is set but only \(self.workspaceIDProviderList) support workspaceID."))
+                message: "workspaceID is set but \(provider.rawValue) does not support workspaceID."))
         }
 
         if let enterpriseHost = entry.enterpriseHost,
@@ -159,8 +152,7 @@ public enum CodexBarConfigValidator {
                 provider: provider,
                 field: "enterpriseHost",
                 code: "enterprise_host_unused",
-                message: "enterpriseHost is set but only azureopenai, copilot, kimi, " +
-                    "llmproxy, and litellm support enterpriseHost."))
+                message: "enterpriseHost is set but \(provider.rawValue) does not support enterpriseHost."))
         }
 
         if let tokenAccounts = entry.tokenAccounts, !tokenAccounts.accounts.isEmpty,
@@ -177,8 +169,7 @@ public enum CodexBarConfigValidator {
 
     private static func validateSecretKey(_ entry: ProviderConfig, issues: inout [CodexBarConfigIssue]) {
         guard let secretKey = entry.secretKey,
-              !secretKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              entry.id != .bedrock
+              !secretKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
             return
         }
@@ -188,31 +179,15 @@ public enum CodexBarConfigValidator {
             provider: entry.id,
             field: "secretKey",
             code: "secret_key_unused",
-            message: "secretKey is set but only bedrock uses secretKey."))
+            message: "secretKey is set but \(entry.id.rawValue) does not use secretKey."))
     }
 
     private static func providerSupportsWorkspaceID(_ provider: UsageProvider) -> Bool {
         self.workspaceIDProviders.contains(provider)
     }
 
-    private static var workspaceIDProviderList: String {
-        self.formattedProviderList(self.workspaceIDProviders)
-    }
-
-    private static func formattedProviderList(_ providers: [UsageProvider]) -> String {
-        let names = providers.map(\.rawValue)
-        guard let last = names.last else { return "" }
-        guard names.count > 1 else { return last }
-        return "\(names.dropLast().joined(separator: ", ")), and \(last)"
-    }
-
     private static func providerSupportsEnterpriseHost(_ provider: UsageProvider) -> Bool {
-        switch provider {
-        case .azureopenai, .copilot, .kimi, .llmproxy, .litellm:
-            true
-        default:
-            false
-        }
+        false
     }
 
     private static func validateRegion(_ entry: ProviderConfig, issues: inout [CodexBarConfigIssue]) {
@@ -223,60 +198,12 @@ public enum CodexBarConfigValidator {
             return
         }
 
-        switch provider {
-        case .minimax:
-            self.validateKnownRegion(
-                region,
-                provider: provider,
-                isValid: MiniMaxAPIRegion(rawValue: region) != nil,
-                displayName: "MiniMax",
-                issues: &issues)
-        case .zai:
-            self.validateKnownRegion(
-                region,
-                provider: provider,
-                isValid: ZaiAPIRegion(rawValue: region) != nil,
-                displayName: "z.ai",
-                issues: &issues)
-        case .alibaba:
-            self.validateKnownRegion(
-                region,
-                provider: provider,
-                isValid: AlibabaCodingPlanAPIRegion(rawValue: region) != nil,
-                displayName: "Alibaba Coding Plan",
-                issues: &issues)
-        case .moonshot:
-            self.validateKnownRegion(
-                region,
-                provider: provider,
-                isValid: MoonshotRegion(rawValue: region) != nil,
-                displayName: "Moonshot",
-                issues: &issues)
-        case .bedrock:
-            break
-        default:
-            issues.append(CodexBarConfigIssue(
-                severity: .warning,
-                provider: provider,
-                field: "region",
-                code: "region_unused",
-                message: "region is set but \(provider.rawValue) does not use regions."))
-        }
-    }
-
-    private static func validateKnownRegion(
-        _ region: String,
-        provider: UsageProvider,
-        isValid: Bool,
-        displayName: String,
-        issues: inout [CodexBarConfigIssue])
-    {
-        guard !isValid else { return }
+        // No remaining provider (codex/claude) uses regions, so any set region is unused.
         issues.append(CodexBarConfigIssue(
-            severity: .error,
+            severity: .warning,
             provider: provider,
             field: "region",
-            code: "invalid_region",
-            message: "Region \(region) is not a valid \(displayName) region."))
+            code: "region_unused",
+            message: "region is set but \(provider.rawValue) does not use regions."))
     }
 }

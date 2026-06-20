@@ -49,32 +49,17 @@ enum MenuBarMetricWindowResolver {
     }
 
     private static func tertiaryOrder(for provider: UsageProvider) -> [Lane] {
-        if provider == .zai {
-            return [.tertiary, .primary, .secondary]
-        }
-        if provider == .perplexity || provider == .cursor || provider == .antigravity {
-            return [.tertiary, .secondary, .primary]
-        }
+        _ = provider
         return [.primary, .secondary]
     }
 
     private static func primaryOrder(for provider: UsageProvider) -> [Lane] {
-        if provider == .zai {
-            return [.primary, .tertiary, .secondary]
-        }
-        if provider == .perplexity || provider == .antigravity {
-            return [.primary, .secondary, .tertiary]
-        }
+        _ = provider
         return [.primary, .secondary]
     }
 
     private static func secondaryOrder(for provider: UsageProvider) -> [Lane] {
-        if provider == .zai || provider == .antigravity {
-            return [.secondary, .primary, .tertiary]
-        }
-        if provider == .perplexity {
-            return [.secondary, .tertiary, .primary]
-        }
+        _ = provider
         return [.secondary, .primary]
     }
 
@@ -84,13 +69,11 @@ enum MenuBarMetricWindowResolver {
         supportsAverage: Bool)
         -> RateWindow?
     {
+        _ = provider
         guard supportsAverage,
               let primary = snapshot.primary,
               let secondary = snapshot.secondary
         else {
-            if provider == .antigravity {
-                return self.window(in: snapshot, following: [.primary, .secondary, .tertiary])
-            }
             return snapshot.primary ?? snapshot.secondary
         }
 
@@ -99,49 +82,6 @@ enum MenuBarMetricWindowResolver {
     }
 
     private static func automaticWindow(provider: UsageProvider, snapshot: UsageSnapshot) -> RateWindow? {
-        if provider == .antigravity {
-            if let window = mostConstrainedAntigravityQuotaSummaryWindow(snapshot: snapshot) {
-                return window
-            }
-            return self.mostConstrainedWindow(
-                primary: snapshot.primary,
-                secondary: snapshot.secondary,
-                tertiary: snapshot.tertiary)
-                ?? self.mostConstrainedAntigravityLegacyExtraWindow(snapshot: snapshot)
-        }
-        if provider == .perplexity {
-            return snapshot.automaticPerplexityWindow()
-        }
-        if provider == .zai {
-            return self.mostConstrainedWindow(
-                primary: snapshot.primary,
-                secondary: snapshot.tertiary,
-                tertiary: nil) ?? snapshot.secondary
-        }
-        if provider == .factory || provider == .kimi {
-            return snapshot.secondary ?? snapshot.primary
-        }
-        if provider == .litellm {
-            return snapshot.secondary ?? snapshot.primary
-        }
-        if provider == .copilot,
-           let primary = snapshot.primary,
-           let secondary = snapshot.secondary
-        {
-            return primary.usedPercent >= secondary.usedPercent ? primary : secondary
-        }
-        if provider == .cursor {
-            return Self.mostConstrainedCursorWindow(
-                total: snapshot.primary,
-                auto: snapshot.secondary,
-                api: snapshot.tertiary)
-        }
-        if provider == .minimax {
-            return Self.mostConstrainedWindow(
-                primary: snapshot.primary,
-                secondary: snapshot.secondary,
-                tertiary: snapshot.tertiary)
-        }
         if provider == .claude,
            Self.shouldUseClaudeSpendLimit(providerCost: snapshot.providerCost, snapshot: snapshot),
            let extraUsage = Self.extraUsageWindow(snapshot: snapshot)
@@ -151,46 +91,13 @@ enum MenuBarMetricWindowResolver {
         return snapshot.primary ?? snapshot.secondary
     }
 
-    private static let antigravityQuotaSummaryWindowIDPrefix = "antigravity-quota-summary-"
-    private static let antigravityCompactFallbackWindowIDPrefix = "antigravity-compact-fallback-"
-
-    private static func mostConstrainedAntigravityQuotaSummaryWindow(snapshot: UsageSnapshot) -> RateWindow? {
-        let windows = snapshot.extraRateWindows?
-            .filter { $0.usageKnown && $0.id.hasPrefix(Self.antigravityQuotaSummaryWindowIDPrefix) }
-            .map(\.window) ?? []
-        guard !windows.isEmpty else { return nil }
-
-        let usableWindows = windows.filter { $0.usedPercent < 100 }
-        if let maxUsable = usableWindows.max(by: { $0.usedPercent < $1.usedPercent }) {
-            return maxUsable
-        }
-        return windows.max(by: { $0.usedPercent < $1.usedPercent })
-    }
-
-    private static func mostConstrainedAntigravityLegacyExtraWindow(snapshot: UsageSnapshot) -> RateWindow? {
-        let windows = snapshot.extraRateWindows?
-            .filter {
-                $0.usageKnown && $0.id.hasPrefix(Self.antigravityCompactFallbackWindowIDPrefix)
-            }
-            .map(\.window) ?? []
-        guard !windows.isEmpty else { return nil }
-
-        let usableWindows = windows.filter { $0.usedPercent < 100 }
-        if let maxUsable = usableWindows.max(by: { $0.usedPercent < $1.usedPercent }) {
-            return maxUsable
-        }
-        return windows.max(by: { $0.usedPercent < $1.usedPercent })
-    }
-
     private static func requestedWindow(
         provider: UsageProvider,
         snapshot: UsageSnapshot,
         lanes: [Lane]) -> RateWindow?
     {
-        self.window(in: snapshot, following: lanes)
-            ?? (provider == .antigravity
-                ? self.mostConstrainedAntigravityLegacyExtraWindow(snapshot: snapshot)
-                : nil)
+        _ = provider
+        return self.window(in: snapshot, following: lanes)
     }
 
     private static func window(in snapshot: UsageSnapshot, following lanes: [Lane]) -> RateWindow? {
@@ -222,26 +129,6 @@ enum MenuBarMetricWindowResolver {
         let windows = [primary, secondary, tertiary].compactMap(\.self)
         guard !windows.isEmpty else { return nil }
         return windows.max(by: { $0.usedPercent < $1.usedPercent })
-    }
-
-    private static func mostConstrainedCursorWindow(
-        total: RateWindow?,
-        auto: RateWindow?,
-        api: RateWindow?)
-        -> RateWindow?
-    {
-        if let total, total.usedPercent >= 100 {
-            return total
-        }
-
-        let subquotaWindows = [auto, api].compactMap(\.self)
-        let usableSubquotaWindows = subquotaWindows.filter { $0.usedPercent < 100 }
-        if !subquotaWindows.isEmpty, usableSubquotaWindows.isEmpty {
-            return subquotaWindows.max(by: { $0.usedPercent < $1.usedPercent })
-        }
-
-        return ([total].compactMap(\.self) + usableSubquotaWindows)
-            .max(by: { $0.usedPercent < $1.usedPercent })
     }
 
     private static func shouldUseClaudeSpendLimit(

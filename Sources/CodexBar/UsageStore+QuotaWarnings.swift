@@ -5,25 +5,11 @@ import Foundation
 extension UsageStore {
     func handleQuotaWarningTransitions(provider: UsageProvider, snapshot: UsageSnapshot) {
         guard self.settings.quotaWarningNotificationsEnabled else { return }
-        if provider == .commandcode, snapshot.commandCodeSubscriptionEnrichmentUnavailable { return }
 
         let accountDisplayName = self.quotaWarningAccountDisplayName(provider: provider, snapshot: snapshot)
-        let source: SessionQuotaWindowSource? = if provider == .antigravity {
-            Self.hasAntigravityQuotaSummaryWindows(snapshot: snapshot)
-                ? .antigravityQuotaSummary
-                : .antigravityLegacy
-        } else {
-            nil
-        }
-        let primaryWindow: RateWindow?
-        let secondaryWindow: RateWindow?
-        if provider == .antigravity {
-            primaryWindow = Self.antigravityWindow(snapshot: snapshot, windowMinutes: 5 * 60)
-            secondaryWindow = Self.antigravityWindow(snapshot: snapshot, windowMinutes: 7 * 24 * 60)
-        } else {
-            primaryWindow = provider == .mimo ? nil : snapshot.primary
-            secondaryWindow = provider == .mimo ? nil : snapshot.secondary
-        }
+        let source: SessionQuotaWindowSource? = nil
+        let primaryWindow: RateWindow? = snapshot.primary
+        let secondaryWindow: RateWindow? = snapshot.secondary
         self.handleQuotaWarningTransition(
             provider: provider,
             window: .session,

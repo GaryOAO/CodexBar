@@ -83,22 +83,7 @@ struct ProviderDetailView<SupplementaryContent: View>: View {
         else {
             return nil
         }
-        guard provider == .openrouter || provider == .mimo || provider == .moonshot || provider == .poe else {
-            return (label: L("Plan"), value: rawPlan)
-        }
-
-        let prefix = "Balance:"
-        if rawPlan.hasPrefix(prefix) {
-            let valueStart = rawPlan.index(rawPlan.startIndex, offsetBy: prefix.count)
-            let trimmedValue = rawPlan[valueStart...].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedValue.isEmpty {
-                return (label: L("Balance"), value: trimmedValue)
-            }
-        }
-        if provider == .mimo {
-            return (label: L("Plan"), value: rawPlan)
-        }
-        return (label: L("Balance"), value: rawPlan)
+        return (label: L("Plan"), value: rawPlan)
     }
 
     var body: some View {
@@ -188,11 +173,6 @@ struct ProviderDetailView<SupplementaryContent: View>: View {
         }
         if !self.model.email.isEmpty {
             infoLabels.append(L("Account"))
-        }
-        if self.provider == .kiro,
-           self.model.metrics.isEmpty == false
-        {
-            infoLabels.append(L("Auth"))
         }
         if let planRow = Self.planRow(provider: self.provider, planText: self.model.planText) {
             infoLabels.append(planRow.label)
@@ -334,13 +314,6 @@ private struct ProviderDetailInfoGrid: View {
 
             if !email.isEmpty {
                 ProviderDetailInfoRow(label: L("Account"), value: email, labelWidth: self.labelWidth)
-            }
-
-            if self.provider == .kiro,
-               let authMethod = self.store.snapshot(for: self.provider)?.loginMethod(for: .kiro),
-               !authMethod.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            {
-                ProviderDetailInfoRow(label: L("Auth"), value: authMethod, labelWidth: self.labelWidth)
             }
 
             if let planRow = ProviderDetailView<EmptyView>.planRow(

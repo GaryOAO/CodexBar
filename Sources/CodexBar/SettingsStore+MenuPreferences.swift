@@ -3,28 +3,8 @@ import Foundation
 
 extension SettingsStore {
     func menuBarMetricPreference(for provider: UsageProvider) -> MenuBarMetricPreference {
-        if Self.isBalanceOnlyProvider(provider), provider != .mistral {
+        if Self.isBalanceOnlyProvider(provider) {
             return .automatic
-        }
-        if provider == .mistral {
-            let raw = self.menuBarMetricPreferencesRaw[provider.rawValue] ?? ""
-            let preference = MenuBarMetricPreference(rawValue: raw) ?? .automatic
-            switch preference {
-            case .automatic, .monthlyPlan:
-                return preference
-            case .primary, .secondary, .primaryAndSecondary, .tertiary, .extraUsage, .average:
-                return .automatic
-            }
-        }
-        if provider == .openrouter {
-            let raw = self.menuBarMetricPreferencesRaw[provider.rawValue] ?? ""
-            let preference = MenuBarMetricPreference(rawValue: raw) ?? .automatic
-            switch preference {
-            case .automatic, .primary:
-                return preference
-            case .secondary, .primaryAndSecondary, .average, .tertiary, .extraUsage, .monthlyPlan:
-                return .automatic
-            }
         }
         let raw = self.menuBarMetricPreferencesRaw[provider.rawValue] ?? ""
         let preference = MenuBarMetricPreference(rawValue: raw) ?? .automatic
@@ -47,26 +27,8 @@ extension SettingsStore {
     }
 
     func setMenuBarMetricPreference(_ preference: MenuBarMetricPreference, for provider: UsageProvider) {
-        if Self.isBalanceOnlyProvider(provider), provider != .mistral {
+        if Self.isBalanceOnlyProvider(provider) {
             self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
-            return
-        }
-        if provider == .mistral {
-            switch preference {
-            case .automatic, .monthlyPlan:
-                self.menuBarMetricPreferencesRaw[provider.rawValue] = preference.rawValue
-            case .primary, .secondary, .primaryAndSecondary, .tertiary, .extraUsage, .average:
-                self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
-            }
-            return
-        }
-        if provider == .openrouter {
-            switch preference {
-            case .automatic, .primary:
-                self.menuBarMetricPreferencesRaw[provider.rawValue] = preference.rawValue
-            case .secondary, .primaryAndSecondary, .average, .tertiary, .extraUsage, .monthlyPlan:
-                self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
-            }
             return
         }
         if preference == .primaryAndSecondary, !self.menuBarMetricSupportsPrimaryAndSecondary(for: provider) {
@@ -88,27 +50,24 @@ extension SettingsStore {
         self.menuBarMetricPreferencesRaw[provider.rawValue] = preference.rawValue
     }
 
-    func menuBarMetricSupportsAverage(for provider: UsageProvider) -> Bool {
-        provider == .gemini
+    func menuBarMetricSupportsAverage(for _: UsageProvider) -> Bool {
+        false
     }
 
     func menuBarMetricSupportsPrimaryAndSecondary(for provider: UsageProvider) -> Bool {
         provider == .codex
     }
 
-    func menuBarMetricSupportsTertiary(for provider: UsageProvider) -> Bool {
-        provider == .cursor || provider == .perplexity || provider == .zai
+    func menuBarMetricSupportsTertiary(for _: UsageProvider) -> Bool {
+        false
     }
 
-    func menuBarMetricSupportsTertiary(for provider: UsageProvider, snapshot: UsageSnapshot?) -> Bool {
-        if provider == .cursor || provider == .zai {
-            return snapshot?.tertiary != nil
-        }
-        return self.menuBarMetricSupportsTertiary(for: provider)
+    func menuBarMetricSupportsTertiary(for provider: UsageProvider, snapshot _: UsageSnapshot?) -> Bool {
+        self.menuBarMetricSupportsTertiary(for: provider)
     }
 
     func menuBarMetricSupportsExtraUsage(for provider: UsageProvider) -> Bool {
-        provider == .cursor || provider == .claude
+        provider == .claude
     }
 
     func menuBarMetricSupportsExtraUsage(for provider: UsageProvider, snapshot: UsageSnapshot?) -> Bool {
@@ -141,12 +100,7 @@ extension SettingsStore {
         self.resetTimesShowAbsolute ? .absolute : .countdown
     }
 
-    static func isBalanceOnlyProvider(_ provider: UsageProvider) -> Bool {
-        switch provider {
-        case .deepseek, .mistral, .kimik2, .moonshot, .poe:
-            true
-        default:
-            false
-        }
+    static func isBalanceOnlyProvider(_: UsageProvider) -> Bool {
+        false
     }
 }

@@ -49,28 +49,7 @@ extension UsageStore {
             return nil
         }
 
-        switch provider {
-        case .synthetic:
-            return SyntheticSettingsError.missingToken.errorDescription
-        case .zai:
-            return ZaiSettingsError.missingToken.errorDescription
-        case .openrouter:
-            return OpenRouterSettingsError.missingToken.errorDescription
-        case .azureopenai:
-            return AzureOpenAISettingsError.missingAPIKey.errorDescription
-        case .elevenlabs:
-            return ElevenLabsUsageError.missingCredentials.errorDescription
-        case .deepseek:
-            return DeepSeekUsageError.missingCredentials.errorDescription
-        case .perplexity:
-            return PerplexityAPIError.missingToken.errorDescription
-        case .minimax:
-            return MiniMaxAPISettingsError.missingToken.errorDescription
-        case .kimi:
-            return KimiAPIError.missingToken.errorDescription
-        default:
-            return "\(self.metadata(for: provider).displayName) is unavailable in the current environment."
-        }
+        return "\(self.metadata(for: provider).displayName) is unavailable in the current environment."
     }
 
     func status(for provider: UsageProvider) -> ProviderStatus? {

@@ -10,16 +10,7 @@ extension UsageMenuCardView.Model {
     }
 
     static func redactedMetricDetail(_ detail: String?, provider: UsageProvider, metricID: String) -> String? {
-        let redacted = PersonalInfoRedactor.redactEmails(in: detail, isEnabled: true)
-        guard provider == .litellm,
-              metricID == "secondary",
-              let redacted,
-              redacted.hasPrefix("Team "),
-              let separator = redacted.range(of: ": ", options: .backwards)
-        else {
-            return redacted
-        }
-        return "Team Hidden\(redacted[separator.lowerBound...])"
+        PersonalInfoRedactor.redactEmails(in: detail, isEnabled: true)
     }
 
     static func redactedMetrics(
@@ -53,7 +44,6 @@ extension UsageMenuCardView.Model {
         self.subtitleStyle == .error &&
             self.metrics.isEmpty &&
             self.usageNotes.isEmpty &&
-            self.openAIAPIUsage == nil &&
             self.inlineUsageDashboard == nil &&
             self.creditsRemaining == nil &&
             self.providerCost == nil &&
@@ -64,7 +54,6 @@ extension UsageMenuCardView.Model {
     var hasUsageContent: Bool {
         !self.metrics.isEmpty ||
             !self.usageNotes.isEmpty ||
-            self.openAIAPIUsage != nil ||
             self.inlineUsageDashboard != nil ||
             self.codexResetCreditsText != nil ||
             self.placeholder != nil
@@ -101,7 +90,6 @@ extension UsageMenuCardView.Model {
         guard self.provider == candidate.provider,
               !includeMetrics || self.metrics.count == candidate.metrics.count,
               self.usageNotes == candidate.usageNotes,
-              (self.openAIAPIUsage == nil) == (candidate.openAIAPIUsage == nil),
               Self.hasCompatibleCreditsLayout(
                   currentText: self.creditsText,
                   currentRemaining: self.creditsRemaining,
@@ -209,10 +197,6 @@ extension UsageMenuCardView.Model {
     }
 
     static func progressColor(for provider: UsageProvider) -> Color {
-        if provider == .elevenlabs {
-            return Color(nsColor: .labelColor)
-        }
-
         let color = ProviderDescriptorRegistry.descriptor(for: provider).branding.color
         return Color(red: color.red, green: color.green, blue: color.blue)
     }
@@ -221,19 +205,8 @@ extension UsageMenuCardView.Model {
         input: Input,
         snapshot: UsageSnapshot) -> (primary: String, secondary: String, tertiary: String, showsTertiary: Bool)
     {
-        if input.provider == .factory, snapshot.tertiary != nil {
-            return ("5-hour", L("Weekly"), L("Monthly"), true)
-        }
-        // Legacy request-based Cursor plans track a request quota, not the token-based "Total" pool.
-        let primaryLabel = if input.provider == .cursor, snapshot.cursorRequests != nil {
-            "Requests"
-        } else if input.provider == .grok {
-            GrokProviderDescriptor.primaryLabel(window: snapshot.primary) ?? input.metadata.sessionLabel
-        } else {
-            input.metadata.sessionLabel
-        }
-        return (
-            L(primaryLabel),
+        (
+            L(input.metadata.sessionLabel),
             L(input.metadata.weeklyLabel),
             input.metadata.opusLabel.map(L) ?? L("Sonnet"),
             input.metadata.supportsOpus)
@@ -276,17 +249,6 @@ extension UsageMenuCardView.Model {
         return error
     }
 
-    static func mimoUsageNotes(input: Input, subscriptionNotes: [String]) -> [String] {
-        let source = input.sourceLabel?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard source != "local" else { return [] }
-        return [
-            L("Balance updates in near-real time (up to 5 min lag)"),
-            L("Daily billing data finalizes at 07:00 UTC"),
-        ] + subscriptionNotes
-    }
-
     static func subscriptionMetadataNotes(snapshot: UsageSnapshot?, provider: UsageProvider) -> [String] {
         guard let snapshot else { return [] }
         if let renewsAt = snapshot.subscriptionRenewsAt {
@@ -301,23 +263,9 @@ extension UsageMenuCardView.Model {
     private static func subscriptionDateString(_ date: Date, provider: UsageProvider) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale.current
-        formatter.timeZone = self.subscriptionDateTimeZone(provider: provider)
+        formatter.timeZone = .current
         formatter.setLocalizedDateFormatFromTemplate("MMM d, yyyy")
         return formatter.string(from: date)
-    }
-
-    private static func subscriptionDateTimeZone(provider: UsageProvider) -> TimeZone {
-        switch provider {
-        case .minimax:
-            TimeZone(identifier: "Asia/Shanghai") ?? .current
-        default:
-            .current
-        }
-    }
-
-    static func poeBalanceDetailText(input: Input) -> String? {
-        guard input.provider == .poe else { return nil }
-        return StatusItemController.poeBalanceDisplayText(snapshot: input.snapshot)
     }
 
     private static func hasLocalCodexTokenUsage(_ input: Input) -> Bool {
@@ -405,68 +353,6 @@ extension UsageMenuCardView.Model {
         return pace.expectedUsedPercent >= 3 || pace.etaSeconds == 0 ? pace : nil
     }
 
-    static func cursorBillingCyclePaceDetail(
-        window: RateWindow,
-        input: Input,
-        pace: UsagePace? = nil) -> PaceDetail?
-    {
-        guard input.provider == .cursor,
-              window.windowMinutes != nil
-        else { return nil }
-        let resolved = pace ?? UsagePace.weekly(
-            window: window,
-            now: input.now,
-            defaultWindowMinutes: 10080,
-            workDays: input.workDaysPerWeek)
-        guard let resolved = Self.displayableWeeklyPace(resolved) else { return nil }
-        return Self.weeklyPaceDetail(
-            window: window,
-            now: input.now,
-            pace: resolved,
-            showUsed: input.usageBarsShowUsed)
-    }
-
-    static func antigravityMetrics(input: Input, snapshot: UsageSnapshot) -> [Metric] {
-        let percentStyle: PercentStyle = input.usageBarsShowUsed ? .used : .left
-        if Self.hasAntigravityQuotaSummaryWindows(snapshot) {
-            return Self.extraRateWindowMetrics(
-                snapshot: snapshot,
-                input: input,
-                percentStyle: percentStyle)
-        }
-
-        var metrics: [Metric] = []
-        if let primary = snapshot.primary {
-            metrics.append(Self.antigravityMetric(
-                id: "primary",
-                title: L(input.metadata.sessionLabel),
-                window: primary,
-                input: input,
-                percentStyle: percentStyle))
-        }
-        if let secondary = snapshot.secondary {
-            metrics.append(Self.antigravityMetric(
-                id: "secondary",
-                title: L(input.metadata.weeklyLabel),
-                window: secondary,
-                input: input,
-                percentStyle: percentStyle))
-        }
-        if input.metadata.supportsOpus, let tertiary = snapshot.tertiary {
-            metrics.append(Self.antigravityMetric(
-                id: "tertiary",
-                title: input.metadata.opusLabel.map(L) ?? L("Gemini Flash"),
-                window: tertiary,
-                input: input,
-                percentStyle: percentStyle))
-        }
-        metrics.append(contentsOf: Self.extraRateWindowMetrics(
-            snapshot: snapshot,
-            input: input,
-            percentStyle: percentStyle))
-        return metrics
-    }
-
     static func extraRateWindowMetrics(
         snapshot: UsageSnapshot,
         input: Input,
@@ -474,12 +360,9 @@ extension UsageMenuCardView.Model {
     {
         guard let extraRateWindows = snapshot.extraRateWindows else { return [] }
         // Codex additional limits (e.g. Codex Spark) are optional extra usage and follow the
-        // "optional credits and extra usage" setting. Other providers' extra windows (Antigravity
-        // per-model quotas, Factory core windows, etc.) are core data and must always render.
+        // "optional credits and extra usage" setting. Other providers' extra windows are core
+        // data and must always render.
         if input.provider == .codex, !input.showOptionalCreditsAndExtraUsage {
-            return []
-        }
-        if input.provider == .copilot, !input.copilotBudgetExtrasEnabled {
             return []
         }
         return extraRateWindows.map { namedWindow in
@@ -516,53 +399,14 @@ extension UsageMenuCardView.Model {
         }
     }
 
-    private static let antigravityQuotaSummaryWindowIDPrefix = "antigravity-quota-summary-"
-
-    private static func hasAntigravityQuotaSummaryWindows(_ snapshot: UsageSnapshot) -> Bool {
-        snapshot.extraRateWindows?.contains(where: self.isAntigravityQuotaSummaryWindow) == true
-    }
-
-    private static func isAntigravityQuotaSummaryWindow(_ namedWindow: NamedRateWindow) -> Bool {
-        namedWindow.id.hasPrefix(self.antigravityQuotaSummaryWindowIDPrefix)
-    }
-
     private static func extraRateWindowResetText(
         namedWindow: NamedRateWindow,
         input: Input) -> String?
     {
-        if namedWindow.window.resetsAt != nil {
-            return self.resetText(
-                for: namedWindow.window,
-                style: input.resetTimeDisplayStyle,
-                now: input.now)
-        }
-        if input.provider == .antigravity,
-           self.isAntigravityQuotaSummaryWindow(namedWindow)
-        {
-            return self.antigravityQuotaSummaryResetText(namedWindow.window.resetDescription)
-        }
-        return self.resetText(
+        self.resetText(
             for: namedWindow.window,
             style: input.resetTimeDisplayStyle,
             now: input.now)
-    }
-
-    private static func antigravityQuotaSummaryResetText(_ description: String?) -> String? {
-        guard let description = description?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !description.isEmpty
-        else { return nil }
-
-        if let range = description.range(of: "fully refresh in ", options: .caseInsensitive) {
-            var suffix = String(description[range.upperBound...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            while suffix.last == "." {
-                suffix.removeLast()
-            }
-            guard !suffix.isEmpty else { return description }
-            return String(format: L("Resets in %@"), suffix)
-        }
-
-        return description
     }
 
     private static func extraRateWindowPaceDetail(
@@ -594,133 +438,4 @@ extension UsageMenuCardView.Model {
         }
     }
 
-    static func antigravityMetric(
-        id: String,
-        title: String,
-        window: RateWindow?,
-        input: Input,
-        percentStyle: PercentStyle) -> Metric
-    {
-        guard let window else {
-            let placeholderPercent = input.usageBarsShowUsed ? 100.0 : 0.0
-            return Metric(
-                id: id,
-                title: title,
-                percent: placeholderPercent,
-                percentStyle: percentStyle,
-                statusText: nil,
-                resetText: nil,
-                detailText: nil,
-                detailLeftText: nil,
-                detailRightText: nil,
-                pacePercent: nil,
-                paceOnTop: true)
-        }
-        let percent = input.usageBarsShowUsed ? window.usedPercent : window.remainingPercent
-        return Metric(
-            id: id,
-            title: title,
-            percent: Self.clamped(percent),
-            percentStyle: percentStyle,
-            resetText: Self.resetText(for: window, style: input.resetTimeDisplayStyle, now: input.now),
-            detailText: nil,
-            detailLeftText: nil,
-            detailRightText: nil,
-            pacePercent: nil,
-            paceOnTop: true)
-    }
-
-    static func zaiLimitDetailText(limit: ZaiLimitEntry?) -> String? {
-        guard let limit else { return nil }
-
-        if let currentValue = limit.currentValue,
-           let usage = limit.usage,
-           let remaining = limit.remaining
-        {
-            let currentStr = UsageFormatter.tokenCountString(currentValue)
-            let usageStr = UsageFormatter.tokenCountString(usage)
-            let remainingStr = UsageFormatter.tokenCountString(remaining)
-            return String(format: L("%@ / %@ (%@ remaining)"), currentStr, usageStr, remainingStr)
-        }
-
-        return nil
-    }
-
-    static func openRouterQuotaDetail(provider: UsageProvider, snapshot: UsageSnapshot) -> String? {
-        guard provider == .openrouter,
-              let usage = snapshot.openRouterUsage,
-              usage.hasValidKeyQuota,
-              let keyRemaining = usage.keyRemaining,
-              let keyLimit = usage.keyLimit
-        else {
-            return nil
-        }
-
-        let remaining = UsageFormatter.usdString(keyRemaining)
-        let limit = UsageFormatter.usdString(keyLimit)
-        return String(format: L("%@/%@ left"), remaining, limit)
-    }
-
-    static func syntheticRegenDetail(
-        weekly: RateWindow,
-        cost: ProviderCostSnapshot?,
-        now: Date,
-        showUsed: Bool) -> (resetText: String, pace: PaceDetail)?
-    {
-        guard let cost,
-              cost.limit > 0,
-              let nextRegenAmount = cost.nextRegenAmount,
-              nextRegenAmount > 0,
-              let resetsAt = weekly.resetsAt
-        else { return nil }
-
-        let countdown = UsageFormatter.resetCountdownDescription(from: resetsAt, now: now)
-        let resetText = String(format: L("Regenerates %@"), countdown)
-
-        let nextRegenPercent = (nextRegenAmount / cost.limit) * 100
-        let afterNextRegenRemaining = min(100, weekly.remainingPercent + nextRegenPercent)
-        let afterNextRegen = showUsed ? max(0, 100 - afterNextRegenRemaining) : afterNextRegenRemaining
-        let suffix = showUsed ? L("used after next regen") : L("after next regen")
-        let ticksToFull = max(0, cost.used) / nextRegenAmount
-        let left = String(format: "%.0f%% %@", afterNextRegen, suffix)
-        let right = if ticksToFull <= 0.1 {
-            L("Near full")
-        } else if ticksToFull < 1.5 {
-            L("Full in ~1 regen")
-        } else {
-            String(format: L("Full in ~%.0f regens"), ceil(ticksToFull))
-        }
-        return (resetText, PaceDetail(leftLabel: left, rightLabel: right, pacePercent: nil, paceOnTop: true))
-    }
-
-    static func syntheticRollingRegenDetail(
-        window: RateWindow,
-        now: Date,
-        showUsed: Bool) -> (resetText: String, pace: PaceDetail)?
-    {
-        guard let resetsAt = window.resetsAt,
-              let nextRegenPercent = window.nextRegenPercent,
-              nextRegenPercent > 0
-        else { return nil }
-
-        let countdown = UsageFormatter.resetCountdownDescription(from: resetsAt, now: now)
-        let resetText = String(format: L("Regenerates %@"), countdown)
-
-        let afterNextRegenRemaining = min(100, window.remainingPercent + nextRegenPercent)
-        let afterNextRegen = showUsed ? max(0, 100 - afterNextRegenRemaining) : afterNextRegenRemaining
-        let suffix = showUsed ? L("used after next regen") : L("after next regen")
-        let left = String(format: "%.0f%% %@", afterNextRegen, suffix)
-
-        let missingPercent = max(0, window.usedPercent)
-        let ticksToFull = missingPercent / nextRegenPercent
-        let right = if ticksToFull <= 0.1 {
-            L("Near full")
-        } else if ticksToFull < 1.5 {
-            L("Full in ~1 regen")
-        } else {
-            String(format: L("Full in ~%.0f regens"), ceil(ticksToFull))
-        }
-
-        return (resetText, PaceDetail(leftLabel: left, rightLabel: right, pacePercent: nil, paceOnTop: true))
-    }
 }

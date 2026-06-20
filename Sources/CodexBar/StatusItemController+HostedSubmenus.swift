@@ -17,7 +17,6 @@ extension StatusItemController {
             Self.costHistoryChartID,
             Self.usageHistoryChartID,
             Self.storageBreakdownID,
-            Self.zaiHourlyUsageChartID,
         ]
         return menu.items.contains { item in
             guard let id = item.representedObject as? String else { return false }
@@ -93,14 +92,6 @@ extension StatusItemController {
             } else {
                 false
             }
-        case Self.zaiHourlyUsageChartID:
-            if let providerRawValue = placeholder.toolTip,
-               let provider = UsageProvider(rawValue: providerRawValue)
-            {
-                self.appendZaiHourlyUsageChartItem(to: menu, provider: provider, width: width)
-            } else {
-                false
-            }
         default:
             false
         }
@@ -124,9 +115,6 @@ extension StatusItemController {
         }
         let signature = self.hostedSubviewRenderSignature(identity: identity, width: width)
         if self.hostedSubviewRenderSignatures.object(forKey: menu) as String? == signature {
-            if identity.chartID == Self.zaiHourlyUsageChartID {
-                self.refreshHostedSubviewHeights(in: menu)
-            }
             return
         }
 
@@ -154,12 +142,6 @@ extension StatusItemController {
         case Self.storageBreakdownID:
             if let provider = identity.provider {
                 self.appendStorageBreakdownItem(to: menu, provider: provider, width: width)
-            } else {
-                false
-            }
-        case Self.zaiHourlyUsageChartID:
-            if let provider = identity.provider {
-                self.appendZaiHourlyUsageChartItem(to: menu, provider: provider, width: width)
             } else {
                 false
             }
@@ -216,8 +198,6 @@ extension StatusItemController {
             identity.provider.map(self.usageHistoryRenderSignature(for:)) ?? "missing-provider"
         case Self.storageBreakdownID:
             identity.provider.map(self.storageBreakdownRenderSignature(for:)) ?? "missing-provider"
-        case Self.zaiHourlyUsageChartID:
-            identity.provider.map(self.zaiHourlyUsageRenderSignature(for:)) ?? "missing-provider"
         default:
             "unknown"
         }
@@ -265,39 +245,6 @@ extension StatusItemController {
             footprint.unreadablePaths.joined(separator: ";"),
             components,
             String(Double(self.storageBreakdownMenuMaxHeight()).bitPattern, radix: 16),
-        ].joined(separator: "|")
-    }
-
-    private func zaiHourlyUsageRenderSignature(for provider: UsageProvider) -> String {
-        guard let modelUsage = self.store.snapshot(for: provider)?.zaiUsage?.modelUsage else { return "none" }
-        return Self.zaiHourlyUsageRenderSignature(modelUsage: modelUsage, now: Date())
-    }
-
-    static func zaiHourlyUsageRenderSignature(modelUsage: ZaiModelUsageData, now: Date) -> String {
-        let models = modelUsage.modelDataList
-            .map { model in
-                let usage = model.tokensUsage
-                    .map { $0.map(String.init) ?? "nil" }
-                    .joined(separator: ",")
-                return "\(model.modelName ?? "")=\(usage)"
-            }
-            .joined(separator: ";")
-        let ranges: [ZaiHourlyRange] = [.today(referenceDate: now), .last24h]
-        let visibleBars = ranges
-            .map { range in
-                ZaiHourlyBars.from(modelData: modelUsage, range: range, now: now)
-                    .map { bar in
-                        let segments = bar.segments
-                            .map { "\($0.model)=\($0.tokens)" }
-                            .joined(separator: ",")
-                        return "\(bar.label):\(segments)"
-                    }
-                    .joined(separator: ";")
-            }
-        return [
-            modelUsage.xTime.joined(separator: ","),
-            models,
-            visibleBars.joined(separator: "|"),
         ].joined(separator: "|")
     }
 
@@ -470,40 +417,5 @@ extension StatusItemController {
     private func storageBreakdownMenuMaxHeight() -> CGFloat {
         let visibleHeight = NSScreen.main?.visibleFrame.height ?? 900
         return min(620, max(360, floor(visibleHeight * 0.72)))
-    }
-
-    @discardableResult
-    func appendZaiHourlyUsageChartItem(
-        to submenu: NSMenu,
-        provider: UsageProvider,
-        width: CGFloat) -> Bool
-    {
-        guard provider == .zai,
-              let snapshot = self.store.snapshot(for: provider),
-              let modelUsage = snapshot.zaiUsage?.modelUsage
-        else { return false }
-
-        if !self.menuCardRenderingEnabledForController {
-            let chartItem = NSMenuItem()
-            chartItem.isEnabled = false
-            chartItem.representedObject = Self.zaiHourlyUsageChartID
-            chartItem.toolTip = provider.rawValue
-            submenu.addItem(chartItem)
-            return true
-        }
-
-        let chartView = ZaiHourlyUsageChartMenuView(modelUsage: modelUsage, width: width)
-        let hosting = MenuHostingView(rootView: chartView)
-        hosting.frame = NSRect(
-            origin: .zero,
-            size: NSSize(width: width, height: self.hostedSubviewFittingHeight(for: hosting, width: width)))
-
-        let chartItem = NSMenuItem()
-        chartItem.view = hosting
-        chartItem.isEnabled = false
-        chartItem.representedObject = Self.zaiHourlyUsageChartID
-        chartItem.toolTip = provider.rawValue
-        submenu.addItem(chartItem)
-        return true
     }
 }

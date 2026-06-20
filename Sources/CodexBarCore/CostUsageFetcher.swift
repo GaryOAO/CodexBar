@@ -102,7 +102,7 @@ public struct CostUsageFetcher: Sendable {
         piScannerOptions overridePiScannerOptions: PiSessionCostScanner
             .Options? = nil) async throws -> CostUsageTokenSnapshot
     {
-        guard provider == .codex || provider == .claude || provider == .vertexai || provider == .bedrock else {
+        guard provider == .codex || provider == .claude else {
             throw CostUsageError.unsupportedProvider(provider)
         }
 
@@ -110,14 +110,6 @@ public struct CostUsageFetcher: Sendable {
         let clampedHistoryDays = max(1, min(365, historyDays))
         // Rolling window is inclusive, so a 30-day display starts 29 days before `now`.
         let since = Calendar.current.date(byAdding: .day, value: -(clampedHistoryDays - 1), to: now) ?? now
-
-        if provider == .bedrock {
-            let daily = try await Self.loadBedrockDailyReport(
-                environment: environment,
-                since: since,
-                until: until)
-            return Self.tokenSnapshot(from: daily, now: now, historyDays: clampedHistoryDays)
-        }
 
         var options = overrideScannerOptions ?? CostUsageScanner.Options()
         if provider == .codex,
@@ -138,9 +130,7 @@ public struct CostUsageFetcher: Sendable {
             }
         }
 
-        if provider == .vertexai {
-            options.claudeLogProviderFilter = allowVertexClaudeFallback ? .all : .vertexAIOnly
-        } else if provider == .claude {
+        if provider == .claude {
             options.claudeLogProviderFilter = .excludeVertexAI
         }
         if forceRefresh {
@@ -170,23 +160,6 @@ public struct CostUsageFetcher: Sendable {
                 options: scanOptions,
                 checkCancellation: checkCancellation)
             try checkCancellation()
-
-            if provider == .vertexai,
-               !allowVertexClaudeFallback,
-               scanOptions.claudeLogProviderFilter == .vertexAIOnly,
-               daily.data.isEmpty
-            {
-                var fallback = scanOptions
-                fallback.claudeLogProviderFilter = .all
-                daily = try CostUsageScanner.loadDailyReportCancellable(
-                    provider: provider,
-                    since: since,
-                    until: until,
-                    now: now,
-                    options: fallback,
-                    checkCancellation: checkCancellation)
-                try checkCancellation()
-            }
 
             if provider == .codex || provider == .claude {
                 let piReport = try PiSessionCostScanner.loadDailyReportCancellable(
@@ -258,19 +231,6 @@ public struct CostUsageFetcher: Sendable {
                 historyDays: clampedHistoryDays)
         }
         return cachedSnapshot.flatMap(\.self)
-    }
-
-    private static func loadBedrockDailyReport(
-        environment: [String: String],
-        since: Date,
-        until: Date) async throws -> CostUsageDailyReport
-    {
-        let resolved = try await BedrockCredentialResolver.resolve(environment: environment)
-        return try await BedrockUsageFetcher.fetchDailyReport(
-            credentials: resolved.credentials,
-            since: since,
-            until: until,
-            environment: environment)
     }
 
     static func tokenSnapshot(

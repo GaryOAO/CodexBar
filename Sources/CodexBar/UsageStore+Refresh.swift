@@ -9,29 +9,6 @@ extension UsageStore {
         let shouldConsumeClaudeKeychainFingerprint: Bool
     }
 
-    static func commandCodeSnapshotResolvingDepletionOnEnrichmentFailure(
-        current: UsageSnapshot,
-        previous: UsageSnapshot?) -> UsageSnapshot
-    {
-        let previousProvesPaidDepletion = previous?.commandCodeHasSubscriptionPlan == true ||
-            (previous?.commandCodeSubscriptionEnrichmentUnavailable == true &&
-                previous?.commandCodeMonthlyGrantDepleted == true &&
-                previous?.primary?.usedPercent == 100)
-        guard current.commandCodeSubscriptionEnrichmentUnavailable,
-              current.commandCodeMonthlyGrantDepleted,
-              previousProvesPaidDepletion,
-              let previousPrimary = previous?.primary
-        else {
-            return current
-        }
-        let depleted = RateWindow(
-            usedPercent: 100,
-            windowMinutes: previousPrimary.windowMinutes,
-            resetsAt: previousPrimary.resetsAt,
-            resetDescription: previousPrimary.resetDescription)
-        return current.with(primary: depleted, secondary: current.secondary)
-    }
-
     func refreshForSettingsChange() async {
         await self.runRefresh(
             startupConnectivityRetryAttempt: nil,
@@ -41,11 +18,6 @@ extension UsageStore {
     func prepareRefreshState(for provider: UsageProvider? = nil) {
         guard provider == nil || provider == .codex else { return }
         _ = self.settings.persistResolvedCodexActiveSourceCorrectionIfNeeded()
-    }
-
-    /// Force refresh Augment session (called from UI button)
-    func forceRefreshAugmentSession() async {
-        await self.performRuntimeAction(.forceSessionRefresh, for: .augment)
     }
 
     private func providerRefreshSpec(_ provider: UsageProvider) async -> ProviderSpec? {
@@ -149,16 +121,6 @@ extension UsageStore {
             self.codexAccountSnapshots = []
         }
 
-        if provider == .kilo, self.shouldFanOutKiloScopes() {
-            await self.refreshKiloScopes(generation: generation)
-            guard self.isCurrentProviderRefreshGeneration(provider, generation: generation) else { return }
-            // Continue to also fetch the personal snapshot through the regular path
-            // so the existing single-card render keeps working when only personal is shown.
-            // The presence of multi-element kiloScopeSnapshots triggers stacked rendering.
-        } else if provider == .kilo {
-            await MainActor.run { self.kiloScopeSnapshots = [] }
-        }
-
         let tokenAccounts = self.tokenAccounts(for: provider)
         if self.shouldFetchAllTokenAccounts(provider: provider, accounts: tokenAccounts) {
             await self.refreshTokenAccounts(
@@ -241,10 +203,7 @@ extension UsageStore {
                 let resetBackfillSource = provider == .codex
                     ? self.codexLastKnownResetSnapshot(matching: context.codexExpectedGuard)
                     : self.lastKnownResetSnapshots[provider]
-                let stabilized = Self.commandCodeSnapshotResolvingDepletionOnEnrichmentFailure(
-                    current: scoped,
-                    previous: self.snapshots[provider])
-                let backfilled = stabilized.backfillingResetTimes(from: resetBackfillSource)
+                let backfilled = scoped.backfillingResetTimes(from: resetBackfillSource)
                 self.handleQuotaWarningTransitions(provider: provider, snapshot: backfilled)
                 self.handleSessionQuotaTransition(provider: provider, snapshot: backfilled)
                 self.lastKnownResetSnapshots[provider] = backfilled
@@ -315,9 +274,6 @@ extension UsageStore {
             self.accountSnapshots.removeValue(forKey: provider)
             if provider == .codex {
                 self.codexAccountSnapshots = []
-            }
-            if provider == .kilo {
-                self.kiloScopeSnapshots = []
             }
             self.tokenSnapshots.removeValue(forKey: provider)
             self.tokenErrors[provider] = nil

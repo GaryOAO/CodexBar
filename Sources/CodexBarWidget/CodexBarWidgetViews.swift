@@ -264,58 +264,7 @@ private struct ProviderSwitchChip: View {
     private var shortLabel: String {
         switch self.provider {
         case .codex: "Codex"
-        case .openai: "OpenAI"
-        case .azureopenai: "Azure OpenAI"
         case .claude: "Claude"
-        case .gemini: "Gemini"
-        case .antigravity: "Anti"
-        case .cursor: "Cursor"
-        case .opencode: "OpenCode"
-        case .opencodego: "OpenCode Go"
-        case .alibaba: "Alibaba"
-        case .alibabatokenplan: "Token Plan"
-        case .zai: "z.ai"
-        case .factory: "Droid"
-        case .copilot: "Copilot"
-        case .devin: "Devin"
-        case .minimax: "MiniMax"
-        case .manus: "Manus"
-        case .vertexai: "Vertex"
-        case .kilo: "Kilo"
-        case .kiro: "Kiro"
-        case .augment: "Augment"
-        case .jetbrains: "JetBrains"
-        case .kimi: "Kimi"
-        case .kimik2: "Kimi K2"
-        case .moonshot: "Moonshot"
-        case .amp: "Amp"
-        case .t3chat: "T3 Chat"
-        case .ollama: "Ollama"
-        case .synthetic: "Synthetic"
-        case .openrouter: "OpenRouter"
-        case .elevenlabs: "ElevenLabs"
-        case .warp: "Warp"
-        case .windsurf: "Windsurf"
-        case .perplexity: "Pplx"
-        case .mimo: "MiMo"
-        case .doubao: "Doubao"
-        case .abacus: "Abacus"
-        case .mistral: "Mistral"
-        case .deepseek: "DeepSeek"
-        case .codebuff: "Codebuff"
-        case .crof: "Crof"
-        case .venice: "Venice"
-        case .commandcode: "Command Code"
-        case .stepfun: "StepFun"
-        case .bedrock: "Bedrock"
-        case .grok: "Grok"
-        case .groq: "Groq"
-        case .llmproxy: "LLM Proxy"
-        case .litellm: "LiteLLM"
-        case .deepgram: "Deepgram"
-        case .poe: "Poe"
-        case .chutes: "Chutes"
-        case .zed: "Zed"
         }
     }
 }
@@ -521,31 +470,12 @@ struct WidgetUsageRow: Identifiable, Equatable {
     let title: String
     let percentLeft: Double?
 
-    private enum AntigravityQuotaFamily {
-        case gemini
-        case claudeGPT
+    static func smallWidgetRowLimit(for _: WidgetSnapshot.ProviderEntry) -> Int? {
+        nil
     }
 
-    static func smallWidgetRowLimit(for entry: WidgetSnapshot.ProviderEntry) -> Int? {
-        self.antigravityQuotaSummaryRowLimit(for: entry, limit: 2)
-    }
-
-    static func mediumWidgetRowLimit(for entry: WidgetSnapshot.ProviderEntry) -> Int? {
-        self.antigravityQuotaSummaryRowLimit(for: entry, limit: 3)
-    }
-
-    private static func antigravityQuotaSummaryRowLimit(
-        for entry: WidgetSnapshot.ProviderEntry,
-        limit: Int) -> Int?
-    {
-        guard entry.provider == .antigravity,
-              entry.usageRows?.contains(where: {
-                  $0.id.hasPrefix("antigravity-quota-summary-")
-              }) == true
-        else {
-            return nil
-        }
-        return limit
+    static func mediumWidgetRowLimit(for _: WidgetSnapshot.ProviderEntry) -> Int? {
+        nil
     }
 
     static func rows(for entry: WidgetSnapshot.ProviderEntry, limit: Int? = nil) -> [WidgetUsageRow] {
@@ -575,68 +505,7 @@ struct WidgetUsageRow: Identifiable, Equatable {
             rows = defaultRows.filter { $0.percentLeft != nil }
         }
         guard let limit else { return rows }
-        if entry.provider == .antigravity,
-           limit >= 2,
-           rows.contains(where: { $0.id.hasPrefix("antigravity-quota-summary-") })
-        {
-            var selected = [AntigravityQuotaFamily.gemini, .claudeGPT].compactMap { family in
-                rows
-                    .filter { self.antigravityQuotaFamily(for: $0) == family }
-                    .min(by: self.isMoreConstrained)
-            }
-            let selectedIDs = Set(selected.map(\.id))
-            let fallbackRows = rows.enumerated()
-                .filter { !selectedIDs.contains($0.element.id) }
-                .sorted { lhs, rhs in
-                    switch (lhs.element.percentLeft, rhs.element.percentLeft) {
-                    case let (.some(left), .some(right)):
-                        left == right ? lhs.offset < rhs.offset : left < right
-                    case (.some, .none):
-                        true
-                    case (.none, .some):
-                        false
-                    case (.none, .none):
-                        lhs.offset < rhs.offset
-                    }
-                }
-                .map(\.element)
-            selected.append(contentsOf: fallbackRows.prefix(max(0, limit - selected.count)))
-            return selected
-        }
         return Array(rows.prefix(max(0, limit)))
-    }
-
-    private static func antigravityQuotaFamily(for row: WidgetUsageRow) -> AntigravityQuotaFamily? {
-        guard row.id.hasPrefix("antigravity-quota-summary-") else { return nil }
-        let id = row.id.lowercased()
-        if id.contains("gemini") {
-            return .gemini
-        }
-        if id.contains("3p") || id.contains("third-party") {
-            return .claudeGPT
-        }
-
-        let title = row.title.lowercased()
-        if title.contains("gemini") {
-            return .gemini
-        }
-        if title.contains("claude") || title.contains("gpt") {
-            return .claudeGPT
-        }
-        return nil
-    }
-
-    private static func isMoreConstrained(_ lhs: WidgetUsageRow, than rhs: WidgetUsageRow) -> Bool {
-        switch (lhs.percentLeft, rhs.percentLeft) {
-        case let (.some(left), .some(right)):
-            left < right
-        case (.some, .none):
-            true
-        case (.none, .some):
-            false
-        case (.none, .none):
-            false
-        }
     }
 }
 
@@ -752,113 +621,12 @@ private struct UsageHistoryChart: View {
 }
 
 enum WidgetColors {
-    // swiftlint:disable:next cyclomatic_complexity
     static func color(for provider: UsageProvider) -> Color {
         switch provider {
         case .codex:
             Color(red: 73 / 255, green: 163 / 255, blue: 176 / 255)
-        case .openai:
-            Color(red: 15 / 255, green: 130 / 255, blue: 110 / 255)
-        case .azureopenai:
-            Color(red: 0, green: 120 / 255, blue: 212 / 255)
         case .claude:
             Color(red: 204 / 255, green: 124 / 255, blue: 94 / 255)
-        case .gemini:
-            Color(red: 171 / 255, green: 135 / 255, blue: 234 / 255)
-        case .antigravity:
-            Color(red: 96 / 255, green: 186 / 255, blue: 126 / 255)
-        case .cursor:
-            Color(red: 0 / 255, green: 191 / 255, blue: 165 / 255) // #00BFA5 - Cursor teal
-        case .opencode:
-            Color(red: 59 / 255, green: 130 / 255, blue: 246 / 255)
-        case .opencodego:
-            Color(red: 59 / 255, green: 130 / 255, blue: 246 / 255)
-        case .alibaba, .alibabatokenplan:
-            Color(red: 1.0, green: 106 / 255, blue: 0)
-        case .zai:
-            Color(red: 232 / 255, green: 90 / 255, blue: 106 / 255)
-        case .factory:
-            Color(red: 255 / 255, green: 107 / 255, blue: 53 / 255) // Factory orange
-        case .copilot:
-            Color(red: 168 / 255, green: 85 / 255, blue: 247 / 255) // Purple
-        case .devin:
-            Color(red: 70 / 255, green: 180 / 255, blue: 130 / 255)
-        case .minimax:
-            Color(red: 254 / 255, green: 96 / 255, blue: 60 / 255)
-        case .manus:
-            Color(red: 24 / 255, green: 24 / 255, blue: 24 / 255)
-        case .vertexai:
-            Color(red: 66 / 255, green: 133 / 255, blue: 244 / 255) // Google Blue
-        case .kilo:
-            Color(red: 242 / 255, green: 112 / 255, blue: 39 / 255) // Kilo orange
-        case .kiro:
-            Color(red: 255 / 255, green: 153 / 255, blue: 0 / 255) // AWS orange
-        case .augment:
-            Color(red: 99 / 255, green: 102 / 255, blue: 241 / 255) // Augment purple
-        case .jetbrains:
-            Color(red: 255 / 255, green: 51 / 255, blue: 153 / 255) // JetBrains pink
-        case .kimi:
-            Color(red: 254 / 255, green: 96 / 255, blue: 60 / 255) // Kimi orange
-        case .kimik2:
-            Color(red: 76 / 255, green: 0 / 255, blue: 255 / 255) // Kimi K2 purple
-        case .moonshot:
-            Color(red: 32 / 255, green: 93 / 255, blue: 235 / 255)
-        case .amp:
-            Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255) // Amp red
-        case .t3chat:
-            Color(red: 245 / 255, green: 102 / 255, blue: 71 / 255)
-        case .ollama:
-            Color(red: 32 / 255, green: 32 / 255, blue: 32 / 255) // Ollama charcoal
-        case .synthetic:
-            Color(red: 20 / 255, green: 20 / 255, blue: 20 / 255) // Synthetic charcoal
-        case .openrouter:
-            Color(red: 111 / 255, green: 66 / 255, blue: 193 / 255) // OpenRouter purple
-        case .elevenlabs:
-            Color(red: 235 / 255, green: 235 / 255, blue: 230 / 255)
-        case .warp:
-            Color(red: 147 / 255, green: 139 / 255, blue: 180 / 255)
-        case .windsurf:
-            Color(red: 52 / 255, green: 232 / 255, blue: 187 / 255) // Windsurf #34e8bb
-        case .perplexity:
-            Color(red: 32 / 255, green: 178 / 255, blue: 170 / 255) // Perplexity teal
-        case .mimo:
-            Color(red: 1.0, green: 105 / 255, blue: 0)
-        case .doubao:
-            Color(red: 45 / 255, green: 136 / 255, blue: 255 / 255) // Doubao blue
-        case .abacus:
-            Color(red: 56 / 255, green: 189 / 255, blue: 248 / 255)
-        case .mistral:
-            Color(red: 255 / 255, green: 80 / 255, blue: 15 / 255) // Mistral orange
-        case .deepseek:
-            Color(red: 82 / 255, green: 125 / 255, blue: 240 / 255)
-        case .codebuff:
-            Color(red: 68 / 255, green: 255 / 255, blue: 0 / 255) // Codebuff lime
-        case .crof:
-            Color(red: 46 / 255, green: 171 / 255, blue: 148 / 255)
-        case .venice:
-            Color(red: 51 / 255, green: 153 / 255, blue: 1.0)
-        case .commandcode:
-            Color(red: 0, green: 0, blue: 0)
-        case .stepfun:
-            Color(red: 255 / 255, green: 140 / 255, blue: 0 / 255) // StepFun orange
-        case .bedrock:
-            Color(red: 255 / 255, green: 153 / 255, blue: 0 / 255) // AWS orange
-        case .grok:
-            Color(red: 16 / 255, green: 163 / 255, blue: 127 / 255) // Grok teal
-        case .groq:
-            Color(red: 245 / 255, green: 104 / 255, blue: 68 / 255)
-        case .llmproxy:
-            Color(red: 36 / 255, green: 180 / 255, blue: 126 / 255)
-        case .litellm:
-            Color(red: 76 / 255, green: 137 / 255, blue: 240 / 255)
-        case .deepgram:
-            Color(red: 10 / 255, green: 18 / 255, blue: 27 / 255)
-        case .poe:
-            Color(red: 0.15, green: 0.68, blue: 0.38)
-        case .chutes:
-            Color(red: 24 / 255, green: 160 / 255, blue: 88 / 255)
-        case .zed:
-            Color(red: 64 / 255, green: 156 / 255, blue: 255 / 255)
         }
     }
 }

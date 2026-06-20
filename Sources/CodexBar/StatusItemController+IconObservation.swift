@@ -42,7 +42,7 @@ extension StatusItemController {
                 snapshot: $0,
                 style: style,
                 showUsed: self.settings.usageBarsShowUsed,
-                secondaryOverrideWindowID: self.settings.copilotIconSecondaryWindowOverrideID(snapshot: $0))
+                secondaryOverrideWindowID: nil)
         }
         let creditsRemaining = self.menuBarCreditsRemainingForIcon(provider: provider, snapshot: snapshot)
         let displayText = showBrandPercent ? self.menuBarDisplayText(for: provider, snapshot: snapshot) : nil

@@ -29,12 +29,6 @@ extension UsageStore {
 
     private func menuBarMetricWindowForHighestUsage(provider: UsageProvider, snapshot: UsageSnapshot) -> RateWindow? {
         let effectivePreference = self.settings.menuBarMetricPreference(for: provider, snapshot: snapshot)
-        if provider == .antigravity, effectivePreference == .automatic {
-            let windows = IconRemainingResolver.resolvedWindows(snapshot: snapshot, style: .antigravity)
-            return [windows.primary, windows.secondary]
-                .compactMap(\.self)
-                .max(by: { $0.usedPercent < $1.usedPercent })
-        }
         return MenuBarMetricWindowResolver.rateWindow(
             preference: effectivePreference,
             provider: provider,
@@ -52,30 +46,6 @@ extension UsageStore {
         guard metricPercent >= 100 else { return false }
         if provider == .codex, effectivePreference == .primaryAndSecondary {
             let percents = [snapshot.primary?.usedPercent, snapshot.secondary?.usedPercent].compactMap(\.self)
-            guard !percents.isEmpty else { return true }
-            return percents.allSatisfy { $0 >= 100 }
-        }
-        if provider == .antigravity, effectivePreference == .automatic {
-            let windows = IconRemainingResolver.resolvedWindows(snapshot: snapshot, style: .antigravity)
-            let percents = [windows.primary?.usedPercent, windows.secondary?.usedPercent].compactMap(\.self)
-            return percents.allSatisfy { $0 >= 100 }
-        }
-        if provider == .copilot,
-           effectivePreference == .automatic,
-           let primary = snapshot.primary,
-           let secondary = snapshot.secondary
-        {
-            // In automatic mode Copilot can have one depleted lane while another still has quota.
-            return primary.usedPercent >= 100 && secondary.usedPercent >= 100
-        }
-        if provider == .cursor,
-           effectivePreference == .automatic
-        {
-            let percents = [
-                snapshot.primary?.usedPercent,
-                snapshot.secondary?.usedPercent,
-                snapshot.tertiary?.usedPercent,
-            ].compactMap(\.self)
             guard !percents.isEmpty else { return true }
             return percents.allSatisfy { $0 >= 100 }
         }

@@ -219,8 +219,6 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
 
     @objc func refreshAugmentSession() {
         Task {
-            await self.store.forceRefreshAugmentSession()
-            // Also trigger a full refresh to update the menu and clear any stale errors
             await ProviderInteractionContext.$current.withValue(.userInitiated) {
                 await self.store.refresh(forceTokenUsage: false)
             }
@@ -245,23 +243,7 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         for provider: UsageProvider,
         environment: [String: String] = ProcessInfo.processInfo.environment) -> URL?
     {
-        if provider == .alibaba {
-            return self.settings.alibabaCodingPlanAPIRegion.dashboardURL
-        }
-        if provider == .minimax {
-            return self.settings.minimaxAPIRegion.dashboardURL
-        }
-
-        if provider == .opencodego {
-            return self.settings.opencodegoDashboardURL
-        }
-
-        if provider == .zai {
-            return ZaiUsageFetcher.resolveDashboardURL(
-                region: self.settings.zaiAPIRegion,
-                environment: environment)
-        }
-
+        _ = environment
         let meta = self.store.metadata(for: provider)
         let urlString: String? = if provider == .claude, self.store.isClaudeSubscription() {
             meta.subscriptionDashboardURL ?? meta.dashboardURL
@@ -647,72 +629,9 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         }
     }
 
-    func describe(_ outcome: GeminiLoginRunner.Result.Outcome) -> String {
-        switch outcome {
-        case .success: "success"
-        case .missingBinary: "missingBinary"
-        case let .launchFailed(message): "launchFailed(\(message))"
-        }
-    }
-
-    func describe(_ outcome: AntigravityLoginRunner.Result.Outcome) -> String {
-        switch outcome {
-        case let .success(email):
-            "success(email: \(email ?? "nil"))"
-        case .cancelled:
-            "cancelled"
-        case .timedOut:
-            "timedOut"
-        case let .launchFailed(message):
-            "launchFailed(\(message))"
-        case let .failed(message):
-            "failed(\(message))"
-        }
-    }
-
-    func presentGeminiLoginResult(_ result: GeminiLoginRunner.Result) {
-        guard let info = Self.geminiLoginAlertInfo(for: result) else { return }
-        self.presentLoginAlert(title: info.title, message: info.message)
-    }
-
-    func presentAntigravityLoginResult(_ result: AntigravityLoginRunner.Result) {
-        guard let info = Self.antigravityLoginAlertInfo(for: result) else { return }
-        self.presentLoginAlert(title: info.title, message: info.message)
-    }
-
     struct LoginAlertInfo: Equatable {
         let title: String
         let message: String
-    }
-
-    nonisolated static func geminiLoginAlertInfo(for result: GeminiLoginRunner.Result) -> LoginAlertInfo? {
-        switch result.outcome {
-        case .success:
-            nil
-        case .missingBinary:
-            LoginAlertInfo(
-                title: L("Gemini CLI not found"),
-                message: L("Install the Gemini CLI (npm i -g @google/gemini-cli) and try again."))
-        case let .launchFailed(message):
-            LoginAlertInfo(title: L("Could not open Terminal for Gemini"), message: message)
-        }
-    }
-
-    nonisolated static func antigravityLoginAlertInfo(for result: AntigravityLoginRunner.Result) -> LoginAlertInfo? {
-        switch result.outcome {
-        case .success, .cancelled:
-            nil
-        case .timedOut:
-            LoginAlertInfo(
-                title: L("Antigravity login timed out"),
-                message: L("The browser login did not complete in time. Try Antigravity login again."))
-        case let .launchFailed(message):
-            LoginAlertInfo(
-                title: L("Could not open browser for Antigravity"),
-                message: String(format: L("Open this URL manually to continue login:\n\n%@"), message))
-        case let .failed(message):
-            LoginAlertInfo(title: L("Antigravity login failed"), message: message)
-        }
     }
 
     func presentLoginAlert(title: String, message: String) {
@@ -736,25 +655,5 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         let name = ProviderDescriptorRegistry.descriptor(for: provider).metadata.displayName
         let (title, body) = LoginNotificationLogic.notificationCopy(providerName: name)
         AppNotifications.shared.post(idPrefix: "login-\(provider.rawValue)", title: title, body: body)
-    }
-
-    func presentCursorLoginResult(_ result: CursorLoginRunner.Result) {
-        switch result.outcome {
-        case .success:
-            return
-        case .cancelled:
-            // User closed the window; no alert needed
-            return
-        case let .failed(message):
-            self.presentLoginAlert(title: L("Cursor login failed"), message: message)
-        }
-    }
-
-    func describe(_ outcome: CursorLoginRunner.Result.Outcome) -> String {
-        switch outcome {
-        case .success: "success"
-        case .cancelled: "cancelled"
-        case let .failed(message): "failed(\(message))"
-        }
     }
 }

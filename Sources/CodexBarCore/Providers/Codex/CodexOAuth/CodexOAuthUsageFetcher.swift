@@ -385,7 +385,7 @@ public enum CodexOAuthUsageFetcher {
 
     private static func resolveRateLimitResetCreditsURL(env: [String: String], configContents: String?) -> URL {
         let baseURL = self.resolveChatGPTBaseURL(env: env, configContents: configContents)
-        let normalized = self.normalizeChatGPTBaseURL(baseURL)
+        let normalized = self.normalizeBaseURL(baseURL)
         let full = normalized + Self.rateLimitResetCreditsPath
         return URL(string: full) ?? URL(string: Self.defaultChatGPTBaseURL + Self.rateLimitResetCreditsPath)!
     }

@@ -514,8 +514,6 @@ struct BurnTheme {
         switch provider {
         case .claude: BurnPalette.claudeDot
         case .codex: BurnPalette.codexDot
-        case .gemini: BurnPalette.geminiDot
-        default: BurnPalette.genericDot
         }
     }
 }
@@ -537,8 +535,6 @@ enum BurnPalette {
     // Brand identity dots — always the LLM's hue
     static let claudeDot = Color(red: 0.880, green: 0.580, blue: 0.180) // clay/amber, hue 48
     static let codexDot = Color(red: 0.120, green: 0.780, blue: 0.598) // teal, hue 168
-    static let geminiDot = Color(red: 0.420, green: 0.440, blue: 0.900) // indigo, hue 268
-    static let genericDot = Color(white: 0.60)
 
     // Backgrounds
     static let darkBgTop = Color(red: 0.108, green: 0.108, blue: 0.132)
