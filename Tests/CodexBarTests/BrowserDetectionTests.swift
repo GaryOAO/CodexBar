@@ -97,6 +97,13 @@ struct BrowserDetectionTests {
         FileManager.default.createFile(atPath: profile.appendingPathComponent("Cookies").path, contents: Data())
         defer { try? FileManager.default.removeItem(at: temp) }
 
+        // Fork local-patch: browser cookie access is opt-in (default off). Enable it so the
+        // store-discovery path under test is actually exercised, matching the sibling tests.
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+        UserDefaults.standard.set(true, forKey: BrowserCookieAccessGate.manualOptInDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: BrowserCookieAccessGate.manualOptInDefaultsKey) }
+
         let client = BrowserCookieClient(configuration: .init(homeDirectories: [temp]))
         let stores = try KeychainAccessGate.withTaskOverrideForTesting(false) {
             try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in .allowed } operation: {

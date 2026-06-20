@@ -1384,7 +1384,6 @@ extension StatusMenuTests {
         settings.mergeIcons = true
         settings.selectedMenuProvider = .codex
         settings.mergedMenuLastSelectedWasOverview = true
-        settings.mergedOverviewSelectedProviders = []
 
         let registry = ProviderRegistry.shared
         for provider in UsageProvider.allCases {
@@ -1392,6 +1391,12 @@ extension StatusMenuTests {
             let shouldEnable = provider == .codex || provider == .claude
             settings.setProviderEnabled(provider: provider, metadata: metadata, enabled: shouldEnable)
         }
+        // Deselecting every active provider records an explicit empty Overview selection so the
+        // Overview tab is hidden and the menu falls back to a single provider detail.
+        _ = settings.setMergedOverviewProviderSelection(
+            provider: .codex, isSelected: false, activeProviders: [.codex, .claude])
+        _ = settings.setMergedOverviewProviderSelection(
+            provider: .claude, isSelected: false, activeProviders: [.codex, .claude])
 
         let fetcher = UsageFetcher()
         let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)

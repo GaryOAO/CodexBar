@@ -13,7 +13,10 @@ struct StatusMenuMergedOverviewRefreshTests {
         settings.mergeIcons = true
         let activeProviders: Set<UsageProvider> = [.claude, .codex]
         self.enableOnly(activeProviders, settings: settings)
-        settings.mergedOverviewSelectedProviders = [.codex]
+        // Deselect claude through the edit flow so the empty/partial selection records an edit
+        // signature for [.codex, .claude] and claude is genuinely omitted from the overview set.
+        _ = settings.setMergedOverviewProviderSelection(
+            provider: .claude, isSelected: false, activeProviders: [.codex, .claude])
         settings.mergedMenuLastSelectedWasOverview = true
 
         let controller = self.makeController(settings: settings)

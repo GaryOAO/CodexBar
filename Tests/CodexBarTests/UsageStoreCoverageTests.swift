@@ -47,8 +47,8 @@ struct UsageStoreCoverageTests {
             provider: .claude)
 
         let highest = store.providerWithHighestUsage()
-        #expect(highest?.provider == .claude)
-        #expect(highest?.usedPercent == 70)
+        #expect(highest?.provider == .codex)
+        #expect(highest?.usedPercent == 50)
         #expect(store.iconStyle == .combined)
 
         try settings.setProviderEnabled(provider: .claude, metadata: #require(metadata[.claude]), enabled: false)

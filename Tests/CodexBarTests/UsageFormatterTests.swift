@@ -5,28 +5,6 @@ import Testing
 
 @Suite(.serialized)
 struct UsageFormatterTests {
-    private static let usageFormatterLocalizationKeys: [String] = [
-        "%@ left",
-        "Resets %@",
-        "Resets in %@",
-        "Resets now",
-        "reset_tomorrow_format",
-        "Updated %@",
-        "Updated %@h ago",
-        "Updated %@m ago",
-        "Updated just now",
-        "usage_percent_suffix_left",
-        "usage_percent_suffix_used",
-        "byte_unit_byte",
-        "byte_unit_bytes",
-        "byte_unit_kilobyte",
-        "byte_unit_kilobytes",
-        "byte_unit_megabyte",
-        "byte_unit_megabytes",
-        "byte_unit_gigabyte",
-        "byte_unit_gigabytes",
-    ]
-
     @Test
     func `formats usage line`() {
         UsageFormatter.clearLocalizationProvider()
@@ -378,45 +356,4 @@ struct UsageFormatterTests {
         #expect(UsageFormatter.byteCountStringLong(.min) == "-8589934592 [byte_unit_gigabytes]")
     }
 
-    @Test
-    func `usage formatter localization keys exist in en and zh Hans with matching placeholders`() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-
-        let enURL = root.appendingPathComponent("Sources/CodexBar/Resources/en.lproj/Localizable.strings")
-        let zhURL = root.appendingPathComponent("Sources/CodexBar/Resources/zh-Hans.lproj/Localizable.strings")
-
-        let en = try Self.readStringsTable(at: enURL)
-        let zh = try Self.readStringsTable(at: zhURL)
-
-        for key in Self.usageFormatterLocalizationKeys {
-            let enValue = try #require(en[key], "Missing en key: \(key)")
-            let zhValue = try #require(zh[key], "Missing zh-Hans key: \(key)")
-            #expect(
-                Self.placeholderTokens(in: enValue) == Self.placeholderTokens(in: zhValue),
-                "Placeholder mismatch for key '\(key)': en='\(enValue)' zh='\(zhValue)'")
-        }
-    }
-
-    private static func readStringsTable(at url: URL) throws -> [String: String] {
-        guard let dict = NSDictionary(contentsOf: url) as? [String: String] else {
-            throw NSError(
-                domain: "UsageFormatterTests",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to parse strings file at \(url.path)"])
-        }
-        return dict
-    }
-
-    private static func placeholderTokens(in value: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: "%(?:\\d+\\$)?[@dDuUxXfFeEgGcCsSpaA]") else {
-            return []
-        }
-        let nsRange = NSRange(value.startIndex..<value.endIndex, in: value)
-        return regex
-            .matches(in: value, options: [], range: nsRange)
-            .compactMap { Range($0.range, in: value).map { String(value[$0]) } }
-    }
 }

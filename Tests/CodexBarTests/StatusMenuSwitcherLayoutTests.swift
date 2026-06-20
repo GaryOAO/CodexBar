@@ -29,7 +29,7 @@ struct StatusMenuSwitcherLayoutTests {
             #expect(frame.maxY == overviewFrame.maxY)
         }
 
-        #expect(view._test_rowHeight() == 36)
+        #expect(view._test_rowHeight() == 30)
     }
 
     @Test

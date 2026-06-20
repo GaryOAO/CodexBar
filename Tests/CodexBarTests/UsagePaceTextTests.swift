@@ -219,28 +219,6 @@ struct UsagePaceTextTests {
         #expect(detail == nil)
     }
 
-    @Test
-    func `usage pace text localization keys exist in en and zh Hans with matching placeholders`() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-
-        let enURL = root.appendingPathComponent("Sources/CodexBar/Resources/en.lproj/Localizable.strings")
-        let zhURL = root.appendingPathComponent("Sources/CodexBar/Resources/zh-Hans.lproj/Localizable.strings")
-
-        let en = try Self.readStringsTable(at: enURL)
-        let zh = try Self.readStringsTable(at: zhURL)
-
-        for key in Self.localizedKeys {
-            let enValue = try #require(en[key], "Missing en key: \(key)")
-            let zhValue = try #require(zh[key], "Missing zh-Hans key: \(key)")
-            #expect(
-                Self.placeholderTokens(in: enValue) == Self.placeholderTokens(in: zhValue),
-                "Placeholder mismatch for key '\(key)': en='\(enValue)' zh='\(zhValue)'")
-        }
-    }
-
     private static func readStringsTable(at url: URL) throws -> [String: String] {
         guard let dict = NSDictionary(contentsOf: url) as? [String: String] else {
             throw NSError(

@@ -265,8 +265,13 @@ struct SettingsStoreTests {
         let configStore = testConfigStore(suiteName: suite)
         let store = SettingsStore(userDefaults: defaults, configStore: configStore)
 
-        store.mergedOverviewSelectedProviders = []
         let activeProviders: [UsageProvider] = [.codex, .claude]
+        // Deselecting every active provider records an edit signature for this active set,
+        // so the empty selection is honored rather than falling back to all active providers.
+        store.setMergedOverviewProviderSelection(
+            provider: .codex, isSelected: false, activeProviders: activeProviders)
+        store.setMergedOverviewProviderSelection(
+            provider: .claude, isSelected: false, activeProviders: activeProviders)
         let resolved = store.resolvedMergedOverviewProviders(activeProviders: activeProviders)
 
         #expect(resolved == [])

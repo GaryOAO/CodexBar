@@ -170,7 +170,7 @@ extension StatusMenuTests {
         controller.menuWillOpen(menu)
         defer { controller.menuDidClose(menu) }
 
-        let claudeRow = try #require(menu.items.first {
+        _ = try #require(menu.items.first {
             ($0.representedObject as? String) == "overviewRow-claude"
         })
         var rebuildCount = 0
@@ -179,9 +179,9 @@ extension StatusMenuTests {
         }
         defer { controller._test_openMenuRebuildObserver = nil }
 
-        let action = try #require(claudeRow.action)
-        let target = try #require(claudeRow.target as? StatusItemController)
-        _ = target.perform(action, with: claudeRow)
+        // Overview rows with detail submenus expose a no-op menu-item action; the live selection
+        // path is the row's click handler, which forwards to selectOverviewProvider(_:menu:).
+        controller.selectOverviewProvider(.claude, menu: menu)
 
         #expect(settings.mergedMenuLastSelectedWasOverview == false)
         #expect(settings.selectedMenuProvider == .claude)
@@ -243,7 +243,7 @@ extension StatusMenuTests {
         let menu = controller.makeMenu()
         controller.menuWillOpen(menu)
 
-        let claudeRow = try #require(menu.items.first {
+        _ = try #require(menu.items.first {
             ($0.representedObject as? String) == "overviewRow-claude"
         })
         var rebuildCount = 0
@@ -252,9 +252,9 @@ extension StatusMenuTests {
         }
         defer { controller._test_openMenuRebuildObserver = nil }
 
-        let action = try #require(claudeRow.action)
-        let target = try #require(claudeRow.target as? StatusItemController)
-        _ = target.perform(action, with: claudeRow)
+        // Overview rows with detail submenus expose a no-op menu-item action; the live selection
+        // path is the row's click handler, which forwards to selectOverviewProvider(_:menu:).
+        controller.selectOverviewProvider(.claude, menu: menu)
         controller.menuDidClose(menu)
 
         await Task.yield()

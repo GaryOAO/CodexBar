@@ -317,7 +317,8 @@ struct ProviderDiagnosticExportTests {
         #expect(diag.auth.configured == true)
         #expect(diag.usage == nil)
         #expect(diag.error != nil)
-        #expect(diag.error?.category == "network")
+        // auth.configured == true with a noAvailableStrategy error maps to "configuration".
+        #expect(diag.error?.category == "configuration")
         #expect(diag.fetchAttempts.count == 1)
         #expect(diag.fetchAttempts[0].errorCategory == "network")
     }
