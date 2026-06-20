@@ -79,8 +79,8 @@ extension StatusItemController {
 
         let entry = CachedMergedSwitcherMenuContent(
             requiredMenuContentVersion: context.contentVersion ??
-                self.menuVersions[ObjectIdentifier(menu)] ??
-                self.latestRequiredMenuRebuildVersion,
+                self.menuSession.renderedVersion(for: ObjectIdentifier(menu)) ??
+                self.menuSession.latestRequiredRebuildVersion,
             menuWidth: context.menuWidth,
             codexAccountDisplay: context.codexAccountDisplay,
             tokenAccountDisplay: context.tokenAccountDisplay,
@@ -101,7 +101,7 @@ extension StatusItemController {
         let key = ObjectIdentifier(menu)
         guard let entry = self.mergedSwitcherContentCaches[key]?[selection] else { return nil }
         guard entry.matches(
-            requiredMenuContentVersion: self.latestRequiredMenuRebuildVersion,
+            requiredMenuContentVersion: self.menuSession.latestRequiredRebuildVersion,
             menuWidth: menuWidth,
             codexAccountDisplay: codexAccountDisplay,
             tokenAccountDisplay: tokenAccountDisplay,
@@ -134,6 +134,9 @@ extension StatusItemController {
         for item in items {
             menu.addItem(item)
         }
+        // Detached Refresh items cannot observe a completed manual refresh. Recompute only
+        // after AppKit has restored their menu so provider-scoped busy state is available.
+        self.updatePersistentRefreshItemsEnabled()
         return true
     }
 }

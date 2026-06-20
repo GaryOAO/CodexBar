@@ -174,6 +174,7 @@ final class UsageStore {
     @ObservationIgnored var lastOpenAIDashboardSnapshot: OpenAIDashboardSnapshot?
     @ObservationIgnored var lastOpenAIDashboardAttachmentAuthorized: Bool = false
     @ObservationIgnored var lastOpenAIDashboardTargetEmail: String?
+    @ObservationIgnored var lastOpenAIDashboardTargetIsolationKey: String?
     @ObservationIgnored var lastOpenAIDashboardAttemptAt: Date?
     @ObservationIgnored var lastOpenAIDashboardCookieImportAttemptAt: Date?
     @ObservationIgnored var lastOpenAIDashboardCookieImportEmail: String?
@@ -228,16 +229,13 @@ final class UsageStore {
     @ObservationIgnored var providerSpecs: [UsageProvider: ProviderSpec] = [:]
     @ObservationIgnored let providerMetadata: [UsageProvider: ProviderMetadata]
     @ObservationIgnored var providerRuntimes: [UsageProvider: any ProviderRuntime] = [:]
-    @ObservationIgnored var providerRefreshTasks: [UsageProvider: [ProviderRefreshTaskState]] = [:]
-    @ObservationIgnored var providerRefreshTaskGeneration: UInt64 = 0
-    @ObservationIgnored var providerRefreshWaiterGeneration: UInt64 = 0
-    @ObservationIgnored var latestProviderRefreshGenerations: [UsageProvider: UInt64] = [:]
-    @ObservationIgnored var providerRefreshCounts: [UsageProvider: Int] = [:]
+    @ObservationIgnored var providerRefreshCoordinator = ProviderRefreshCoordinator<UsageProvider>()
     @ObservationIgnored private var providerAvailabilityCache: [UsageProvider: ProviderAvailabilityCacheEntry] = [:]
     @ObservationIgnored var accountInfoCache: [UsageProvider: AccountInfoCacheEntry] = [:]
     @ObservationIgnored private var timerTask: Task<Void, Never>?
     @ObservationIgnored private var tokenTimerTask: Task<Void, Never>?
     @ObservationIgnored private var tokenRefreshSequenceTask: Task<Void, Never>?
+    @ObservationIgnored private var tokenRefreshSequenceProvider: UsageProvider?
     @ObservationIgnored var memoryPressureReliefTask: Task<Void, Never>?
     @ObservationIgnored var startupConnectivityRetryTask: Task<Void, Never>?
     @ObservationIgnored var startupConnectivityRetryNeeded = false
@@ -596,7 +594,7 @@ final class UsageStore {
                                 (ProviderInteractionContext.current == .background))
                     }
                     if availableRefreshProviders.contains(provider) {
-                        group.addTask { await self.refreshStatus(provider) }
+                        group.addTask { await self.refreshProviderStatus(provider) }
                     }
                 }
                 if forceTokenUsage {
@@ -733,19 +731,31 @@ final class UsageStore {
     }
 
     private func refreshTokenUsageSequenceNow(force: Bool) async {
-        if force, let existing = self.tokenRefreshSequenceTask {
-            existing.cancel()
-            await existing.value
-            self.tokenRefreshSequenceTask = nil
-        }
-
+        await self.drainScheduledTokenRefreshIfNeeded(force: force, scopedTo: nil)
         await self.refreshTokenUsageSequence(force: force)
     }
 
+    func refreshTokenUsageNow(for provider: UsageProvider, force: Bool) async {
+        await self.drainScheduledTokenRefreshIfNeeded(force: force, scopedTo: provider)
+        await self.refreshTokenUsage(provider, force: force)
+        self.scheduleMemoryPressureRelief()
+    }
+
+    private func drainScheduledTokenRefreshIfNeeded(force: Bool, scopedTo provider: UsageProvider?) async {
+        guard force, let existing = self.tokenRefreshSequenceTask else { return }
+        if let provider, self.tokenRefreshSequenceProvider != provider { return }
+        existing.cancel()
+        await existing.value
+        self.tokenRefreshSequenceTask = nil
+    }
+
     private func refreshTokenUsageSequence(force: Bool) async {
+        defer { self.tokenRefreshSequenceProvider = nil }
         for provider in self.enabledProvidersForBackgroundWork() {
             if Task.isCancelled { break }
+            self.tokenRefreshSequenceProvider = provider
             await self.refreshTokenUsage(provider, force: force)
+            self.tokenRefreshSequenceProvider = nil
         }
         self.scheduleMemoryPressureRelief()
     }
@@ -763,6 +773,8 @@ final class UsageStore {
     enum SessionQuotaWindowSource: String {
         case primary
         case copilotSecondaryFallback
+        case antigravityQuotaSummary
+        case antigravityLegacy
     }
 
     struct QuotaWarningStateKey: Hashable {
@@ -773,30 +785,29 @@ final class UsageStore {
     struct QuotaWarningState {
         var lastRemaining: Double?
         var firedThresholds: Set<Int> = []
+        var source: SessionQuotaWindowSource?
     }
 
-    private func sessionQuotaWindow(
-        provider: UsageProvider,
-        snapshot: UsageSnapshot) -> (window: RateWindow, source: SessionQuotaWindowSource)?
-    {
-        if let primary = snapshot.primary, Self.isSessionWindow(primary) {
-            return (primary, .primary)
-        }
-        if provider == .copilot, let secondary = snapshot.secondary {
-            return (secondary, .copilotSecondaryFallback)
-        }
-        return nil
-    }
-
-    private static func isSessionWindow(_ window: RateWindow) -> Bool {
-        guard let minutes = window.windowMinutes else { return true }
-        return minutes <= 6 * 60
+    func postQuotaWarning(_ event: QuotaWarningEvent, provider: UsageProvider) {
+        self.sessionQuotaNotifier.postQuotaWarning(
+            event: event,
+            provider: provider,
+            soundEnabled: self.settings.quotaWarningSoundEnabled)
     }
 
     func handleSessionQuotaTransition(provider: UsageProvider, snapshot: UsageSnapshot) {
         // Session quota notifications are tied to the primary session window. Copilot free plans can
         // expose only chat quota, so allow Copilot to fall back to secondary for transition tracking.
+        // Command Code synthesizes a depleted primary while subscription enrichment is unavailable.
+        // Preserve the prior notification state for that placeholder, but accept positive credit data.
+        if provider == .commandcode,
+           snapshot.commandCodeSubscriptionEnrichmentUnavailable,
+           SessionQuotaNotificationLogic.isDepleted(snapshot.primary?.remainingPercent)
+        {
+            return
+        }
         guard let sessionWindow = self.sessionQuotaWindow(provider: provider, snapshot: snapshot) else {
+            if provider == .commandcode, snapshot.commandCodeSubscriptionEnrichmentUnavailable { return }
             self.lastKnownSessionRemaining.removeValue(forKey: provider)
             self.lastKnownSessionWindowSource.removeValue(forKey: provider)
             return
@@ -870,78 +881,7 @@ final class UsageStore {
         self.sessionQuotaNotifier.post(transition: transition, provider: provider, badge: nil)
     }
 
-    func handleQuotaWarningTransitions(provider: UsageProvider, snapshot: UsageSnapshot) {
-        guard self.settings.quotaWarningNotificationsEnabled else { return }
-
-        let accountDisplayName = self.quotaWarningAccountDisplayName(provider: provider, snapshot: snapshot)
-        self.handleQuotaWarningTransition(
-            provider: provider,
-            window: .session,
-            rateWindow: snapshot.primary,
-            accountDisplayName: accountDisplayName)
-        self.handleQuotaWarningTransition(
-            provider: provider,
-            window: .weekly,
-            rateWindow: snapshot.secondary,
-            accountDisplayName: accountDisplayName)
-    }
-
-    private func handleQuotaWarningTransition(
-        provider: UsageProvider,
-        window: QuotaWarningWindow,
-        rateWindow: RateWindow?,
-        accountDisplayName: String?)
-    {
-        let key = QuotaWarningStateKey(provider: provider, window: window)
-        guard self.settings.quotaWarningEnabled(provider: provider, window: window) else {
-            self.quotaWarningState.removeValue(forKey: key)
-            return
-        }
-        guard let rateWindow else {
-            self.quotaWarningState.removeValue(forKey: key)
-            return
-        }
-
-        let thresholds = self.settings.resolvedQuotaWarningThresholds(provider: provider, window: window)
-        let currentRemaining = rateWindow.remainingPercent
-        var state = self.quotaWarningState[key] ?? QuotaWarningState()
-        let cleared = QuotaWarningNotificationLogic.thresholdsToClear(
-            currentRemaining: currentRemaining,
-            alreadyFired: state.firedThresholds)
-        state.firedThresholds.subtract(cleared)
-
-        if let threshold = QuotaWarningNotificationLogic.crossedThreshold(
-            previousRemaining: state.lastRemaining,
-            currentRemaining: currentRemaining,
-            thresholds: thresholds,
-            alreadyFired: state.firedThresholds)
-        {
-            state.firedThresholds.formUnion(QuotaWarningNotificationLogic.firedThresholdsAfterWarning(
-                threshold: threshold,
-                thresholds: thresholds))
-            self.sessionQuotaNotifier.postQuotaWarning(
-                event: QuotaWarningEvent(
-                    window: window,
-                    threshold: threshold,
-                    currentRemaining: currentRemaining,
-                    accountDisplayName: accountDisplayName),
-                provider: provider,
-                soundEnabled: self.settings.quotaWarningSoundEnabled)
-        }
-
-        state.lastRemaining = currentRemaining
-        self.quotaWarningState[key] = state
-    }
-
-    private func quotaWarningAccountDisplayName(provider: UsageProvider, snapshot: UsageSnapshot) -> String? {
-        guard !self.settings.hidePersonalInfo else { return nil }
-        let account = snapshot.accountEmail(for: provider)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let account, !account.isEmpty else { return nil }
-        return account
-    }
-
-    private func refreshStatus(_ provider: UsageProvider) async {
+    func refreshProviderStatus(_ provider: UsageProvider) async {
         guard self.settings.statusChecksEnabled else { return }
         guard let meta = self.providerMetadata[provider] else { return }
 
@@ -1073,7 +1013,9 @@ extension UsageStore {
                 .groq: "Groq debug log not yet implemented",
                 .t3chat: "T3 Chat debug log not yet implemented",
                 .llmproxy: "LLM Proxy debug log not yet implemented",
+                .litellm: "LiteLLM debug log not yet implemented",
                 .deepgram: "Deepgram debug log not yet implemented",
+                .chutes: "Chutes debug log not yet implemented",
             ]
             let buildText = {
                 switch provider {
@@ -1151,7 +1093,7 @@ extension UsageStore {
                 case .gemini, .antigravity, .opencode, .opencodego, .alibabatokenplan, .factory, .copilot, .devin,
                      .vertexai, .kilo, .kiro, .kimi, .kimik2, .moonshot, .jetbrains, .perplexity, .mimo, .doubao,
                      .abacus, .mistral, .codebuff, .crof, .windsurf, .venice, .manus, .commandcode, .stepfun, .bedrock,
-                     .grok, .groq, .t3chat, .llmproxy, .deepgram:
+                     .grok, .groq, .t3chat, .llmproxy, .litellm, .zed, .deepgram, .poe, .chutes:
                     return unimplementedDebugLogMessages[provider] ?? "Debug log not yet implemented"
                 }
             }
@@ -1522,11 +1464,6 @@ extension UsageStore {
             return
         }
 
-        if let override = self._test_tokenUsageRefreshOverride {
-            await override(provider, force)
-            return
-        }
-
         if Self.tokenCostRequiresProviderSnapshot(provider) {
             if let snapshot = self.tokenSnapshot(fromProviderSnapshot: self.snapshots[provider], provider: provider) {
                 self.tokenSnapshots[provider] = snapshot
@@ -1577,6 +1514,15 @@ extension UsageStore {
         self.tokenRefreshInFlight.insert(provider)
         defer { self.tokenRefreshInFlight.remove(provider) }
 
+        if let override = self._test_tokenUsageRefreshOverride {
+            await override(provider, force)
+            if Task.isCancelled {
+                self.lastTokenFetchAt.removeValue(forKey: provider)
+                self.lastTokenFetchScope.removeValue(forKey: provider)
+            }
+            return
+        }
+
         let startedAt = Date()
         let providerText = provider.rawValue
         self.tokenCostLogger
@@ -1616,6 +1562,7 @@ extension UsageStore {
                 guard let snapshot = try await group.next() else { throw CancellationError() }
                 return snapshot
             }
+            try Task.checkCancellation()
 
             guard !snapshot.daily.isEmpty else {
                 self.tokenSnapshots.removeValue(forKey: provider)
@@ -1640,7 +1587,11 @@ extension UsageStore {
             self.tokenFailureGates[provider]?.recordSuccess()
             self.persistWidgetSnapshot(reason: "token-usage")
         } catch {
-            if error is CancellationError { return }
+            if error is CancellationError {
+                self.lastTokenFetchAt.removeValue(forKey: provider)
+                self.lastTokenFetchScope.removeValue(forKey: provider)
+                return
+            }
             let duration = Date().timeIntervalSince(startedAt)
             let msg = error.localizedDescription
             let durationText = String(format: "%.2f", duration)

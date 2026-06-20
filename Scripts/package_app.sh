@@ -17,6 +17,7 @@ esac
 # Load version info
 source "$ROOT/version.env"
 source "$ROOT/Scripts/package_product_paths.sh"
+source "$ROOT/Scripts/sparkle_signing_paths.sh"
 
 derive_team_id_from_identity() {
   local identity="$1"
@@ -359,6 +360,17 @@ install_binary() {
   verify_binary_arches "$dest" "${ARCH_LIST[@]}"
 }
 
+strip_release_binary() {
+  local binary="$1"
+  if [[ "$LOWER_CONF" != "release" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$binary" ]]; then
+    return 0
+  fi
+  xcrun strip -x "$binary"
+}
+
 ensure_widget_extension_project() {
   local spec="$ROOT/WidgetExtension/project.yml"
   local project_dir="$ROOT/WidgetExtension/CodexBarWidgetExtension.xcodeproj"
@@ -446,12 +458,14 @@ install_widget_extension() {
 }
 
 install_binary "CodexBar" "$APP/Contents/MacOS/CodexBar"
+strip_release_binary "$APP/Contents/MacOS/CodexBar"
 # Ship CodexBarCLI alongside the app for easy symlinking.
 install_binary "CodexBarCLI" "$APP/Contents/Helpers/CodexBarCLI"
+strip_release_binary "$APP/Contents/Helpers/CodexBarCLI"
 # Watchdog helper: ensures `claude` probes die when CodexBar crashes/gets killed.
-if [[ -n "$(resolve_binary_path "CodexBarClaudeWatchdog" "${ARCH_LIST[0]}")" ]]; then
-  install_binary "CodexBarClaudeWatchdog" "$APP/Contents/Helpers/CodexBarClaudeWatchdog"
-fi
+install_binary "CodexBarClaudeWatchdog" "$APP/Contents/Helpers/CodexBarClaudeWatchdog"
+strip_release_binary "$APP/Contents/Helpers/CodexBarClaudeWatchdog"
+# Pet/BLE helper sub-app: bridges CodexBar to the optional ESP32-S3 desktop pet over Bluetooth.
 if [[ -n "$(resolve_binary_path "CodexBarPetBLEHelper" "${ARCH_LIST[0]}")" ]]; then
   PET_HELPER_APP="$APP/Contents/Helpers/CodexBarPetBLEHelper.app"
   mkdir -p "$PET_HELPER_APP/Contents/MacOS" "$PET_HELPER_APP/Contents/Resources"
@@ -477,35 +491,13 @@ if [[ -n "$(resolve_binary_path "CodexBarPetBLEHelper" "${ARCH_LIST[0]}")" ]]; t
 </plist>
 PLIST
   install_binary "CodexBarPetBLEHelper" "$PET_HELPER_APP/Contents/MacOS/CodexBarPetBLEHelper"
+  strip_release_binary "$PET_HELPER_APP/Contents/MacOS/CodexBarPetBLEHelper"
 fi
-if [[ -n "$(resolve_binary_path "CodexBarWidget" "${ARCH_LIST[0]}")" ]]; then
-  WIDGET_APP="$APP/Contents/PlugIns/CodexBarWidget.appex"
-  mkdir -p "$WIDGET_APP/Contents/MacOS" "$WIDGET_APP/Contents/Resources"
-  cat > "$WIDGET_APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key><string>CodexBarWidget</string>
-    <key>CFBundleDisplayName</key><string>CodexBar</string>
-    <key>CFBundleIdentifier</key><string>${WIDGET_BUNDLE_ID}</string>
-    <key>CFBundleExecutable</key><string>CodexBarWidget</string>
-    <key>CFBundlePackageType</key><string>XPC!</string>
-    <key>CFBundleShortVersionString</key><string>${MARKETING_VERSION}</string>
-    <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
-    <key>LSMinimumSystemVersion</key><string>14.0</string>
-    <key>CodexBarTeamID</key><string>${APP_TEAM_ID}</string>
-    <key>NSExtension</key>
-    <dict>
-        <key>NSExtensionPointIdentifier</key><string>com.apple.widgetkit-extension</string>
-        <key>NSExtensionPrincipalClass</key><string>CodexBarWidget.CodexBarWidgetBundle</string>
-    </dict>
-</dict>
-</plist>
-PLIST
-  install_binary "CodexBarWidget" "$WIDGET_APP/Contents/MacOS/CodexBarWidget"
-  generate_widget_appintents_metadata "$WIDGET_APP/Contents/Resources"
-fi
+install_widget_extension
+strip_release_binary "$APP/Contents/PlugIns/CodexBarWidget.appex/Contents/MacOS/CodexBarWidget"
+
+swiftpm_bin_path "${ARCH_LIST[0]}" PREFERRED_BUILD_DIR
+
 # Embed Sparkle.framework
 SPARKLE_SOURCE=$(codexbar_require_product_directory "$PREFERRED_BUILD_DIR" Sparkle.framework packaging)
 cp -R "$SPARKLE_SOURCE" "$APP/Contents/Frameworks/"
@@ -524,18 +516,11 @@ else
   CODESIGN_ARGS=(--force --timestamp --options runtime --sign "$CODESIGN_ID")
 fi
 function resign() { codesign "${CODESIGN_ARGS[@]}" "$1"; }
-# Sign innermost binaries first, then the framework root to seal resources
-resign "$SPARKLE"
-resign "$SPARKLE/Versions/B/Sparkle"
-resign "$SPARKLE/Versions/B/Autoupdate"
-resign "$SPARKLE/Versions/B/Updater.app"
-resign "$SPARKLE/Versions/B/Updater.app/Contents/MacOS/Updater"
-resign "$SPARKLE/Versions/B/XPCServices/Downloader.xpc"
-resign "$SPARKLE/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader"
-resign "$SPARKLE/Versions/B/XPCServices/Installer.xpc"
-resign "$SPARKLE/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer"
-resign "$SPARKLE/Versions/B"
-resign "$SPARKLE"
+# Validate Sparkle's nested layout before signing so framework layout drift fails clearly.
+SPARKLE_SIGNING_TARGETS=$(codexbar_sparkle_signing_targets "$SPARKLE")
+while IFS= read -r SPARKLE_TARGET; do
+  resign "$SPARKLE_TARGET"
+done <<<"$SPARKLE_SIGNING_TARGETS"
 
 if [[ -f "$ICON_TARGET" ]]; then
   cp "$ICON_TARGET" "$APP/Contents/Resources/Icon.icns"

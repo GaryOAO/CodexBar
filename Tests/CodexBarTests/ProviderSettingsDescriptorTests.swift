@@ -63,6 +63,19 @@ struct ProviderSettingsDescriptorTests {
     }
 
     @Test
+    func `antigravity usage source picker clarifies local ide and agy`() throws {
+        let fixture = try self.makeSettingsFixture(suite: "ProviderSettingsDescriptorTests-antigravity-source")
+        let context = fixture.settingsContext(provider: .antigravity)
+
+        let pickers = AntigravityProviderImplementation().settingsPickers(context: context)
+        let usagePicker = try #require(pickers.first(where: { $0.id == "antigravity-usage-source" }))
+
+        #expect(usagePicker.options.map(\.title) == ["Auto", "Google OAuth", "Local API / agy CLI"])
+        #expect(usagePicker.subtitle ==
+            "Auto tries Antigravity app, agy CLI, then IDE; OAuth follows for selected or signed-in accounts.")
+    }
+
+    @Test
     func `codex exposes open AI web extras toggle as default off opt in`() throws {
         let fixture = try self.makeSettingsFixture(suite: "ProviderSettingsDescriptorTests-codex-openai-toggle")
         let context = fixture.settingsContext(provider: .codex)
@@ -111,6 +124,26 @@ struct ProviderSettingsDescriptorTests {
         let pickers = ClaudeProviderImplementation().settingsPickers(context: context)
         let keychainPicker = try #require(pickers.first(where: { $0.id == "claude-keychain-prompt-policy" }))
         #expect(keychainPicker.isVisible?() == false)
+    }
+
+    @Test
+    func `claude avoid keychain prompts toggle is disabled when global keychain disabled`() throws {
+        let fixture = try self.makeSettingsFixture(suite: "ProviderSettingsDescriptorTests-claude-prompt-free-disabled")
+        fixture.settings.debugDisableKeychainAccess = true
+        fixture.settings.claudeOAuthPromptFreeCredentialsEnabled = true
+        let context = fixture.settingsContext(provider: .claude)
+
+        let toggles = ClaudeProviderImplementation().settingsToggles(context: context)
+        let promptFreeToggle = try #require(toggles.first(where: { $0.id == "claude-oauth-prompt-free-credentials" }))
+        #expect(promptFreeToggle.isEnabled?() == false)
+        #expect(promptFreeToggle.binding.wrappedValue == true)
+
+        promptFreeToggle.binding.wrappedValue = false
+        #expect(fixture.settings.claudeOAuthPromptFreeCredentialsEnabled == true)
+
+        fixture.settings.debugDisableKeychainAccess = false
+        #expect(promptFreeToggle.isEnabled?() == true)
+        #expect(promptFreeToggle.binding.wrappedValue == true)
     }
 
     @Test

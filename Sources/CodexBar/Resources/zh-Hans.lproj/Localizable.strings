@@ -415,6 +415,8 @@
 "language_ukrainian" = "乌克兰语";
 "language_japanese" = "日语";
 "language_korean" = "韩语";
+"language_italian" = "Italiano";
+"language_polish" = "Polski";
 "start_at_login_title" = "开机启动";
 "start_at_login_subtitle" = "启动 Mac 时自动打开 CodexBar。";
 "show_cost_summary" = "显示费用摘要";
@@ -486,6 +488,8 @@
 "show_most_used_provider_subtitle" = "菜单栏会自动显示最接近速率限制的提供商。";
 "menu_bar_shows_percent_title" = "菜单栏显示百分比";
 "menu_bar_shows_percent_subtitle" = "将小动物进度条替换为提供商品牌图标和百分比。";
+"hide_critters_title" = "隐藏小动物";
+"hide_critters_subtitle" = "显示不带表情和装饰的简洁进度条。";
 "display_mode_title" = "显示模式";
 "display_mode_subtitle" = "选择菜单栏中显示的内容（进度会显示实际用量与预期的对比）。";
 "section_menu_content" = "菜单内容";
@@ -603,6 +607,8 @@
 "metric_pref_tertiary" = "第三";
 "metric_pref_extra_usage" = "额外用量";
 "metric_pref_average" = "平均";
+"metric_mistral_payg" = "Pay-as-you-go";
+"metric_mistral_monthly_plan" = "Monthly Plan";
 "display_mode_percent" = "百分比";
 "display_mode_pace" = "进度";
 "display_mode_both" = "两者";
@@ -680,6 +686,7 @@
 "Resets %@" = "重置于 %@";
 "Resets in %@" = "%@后重置";
 "Resets now" = "立即重置";
+"reset_tomorrow_format" = "明天 %@";
 "Lasts until reset" = "持续到重置";
 "Updated %@" = "更新于 %@";
 "Updated %@h ago" = "%@ 小时前更新";
@@ -782,6 +789,7 @@
 "API spend" = "API 支出";
 "Extra usage" = "额外用量";
 "Quota usage" = "配额用量";
+"Your spend" = "您的支出";
 "%.0f%% used" = "已使用 %.0f%%";
 "Usage history (today)" = "用量记录（今天）";
 "Usage history (%d days)" = "用量记录（%d 天）";
@@ -847,7 +855,7 @@
 "Cleanup ideas" = "清理建议";
 "%d unreadable item(s) skipped" = "已跳过 %d 个不可读项目";
 "weekly_progress_work_days_title" = "工作日刻度线";
-"weekly_progress_work_days_subtitle" = "在每周用量条上显示按天分隔的刻度线。";
+"weekly_progress_work_days_subtitle" = "设置用于每周用量条刻度和进度计算的工作日。";
 "copilot_device_code" = "设备代码已复制到剪贴板：%1$@\n\n请在以下地址验证：%2$@";
 "copilot_waiting_text" = "请在浏览器中完成登录。\n登录完成后，此窗口会自动关闭。";
 "vertex_ai_login_instructions" = "要跟踪 Vertex AI 用量，请通过 Google Cloud 进行认证。\n\n1. 打开终端\n2. 运行：gcloud auth application-default login\n3. 按照浏览器提示登录\n4. 设置你的项目：gcloud config set project PROJECT_ID\n\n是否现在打开终端？";
@@ -939,6 +947,9 @@
 "Day" = "日期";
 "Deployment" = "部署";
 "Drag to reorder" = "拖动以重新排序";
+"Sort providers alphabetically" = "按字母顺序排列提供商";
+"Sort providers alphabetically (enabled first)" = "按字母顺序排列提供商（已启用的优先）";
+"Sorted alphabetically (enabled first) — click to use your custom order" = "已按字母顺序排列（已启用的优先）— 点击使用自定义顺序";
 "Endpoint" = "端点";
 "Enterprise host" = "Enterprise 主机";
 "Extra usage balance: %@" = "额外使用量余额：%@";
@@ -1051,3 +1062,22 @@
 
 "Request quota: %@ / %@" = "请求额度：%@ / %@";
 "language_turkish" = "Türkçe";
+"language_indonesian" = "印度尼西亚语";
+"language_arabic" = "العربية";
+"language_persian" = "فارسی";
+"language_thai" = "ไทย";
+"Limit Reset Credits" = "限额重置额度";
+"1 manual reset available" = "1 次手动重置可用";
+"%d manual resets available" = "%d 次手动重置可用";
+"Next expires %@" = "下一个将于 %@ 到期";
+"Other (%d items)" = "其他（%d 项）";
+"Expand" = "展开";
+"Collapse" = "收起";
+"byte_unit_byte" = "字节";
+"byte_unit_bytes" = "字节";
+"byte_unit_kilobyte" = "千字节";
+"byte_unit_kilobytes" = "千字节";
+"byte_unit_megabyte" = "兆字节";
+"byte_unit_megabytes" = "兆字节";
+"byte_unit_gigabyte" = "吉字节";
+"byte_unit_gigabytes" = "吉字节";

@@ -319,7 +319,7 @@ extension StatusItemController {
             from: self.store.openAIDashboard?.usageBreakdown ?? [])
         guard !breakdown.isEmpty else { return false }
 
-        if !Self.menuCardRenderingEnabled {
+        if !self.menuCardRenderingEnabledForController {
             let chartItem = NSMenuItem()
             chartItem.isEnabled = true
             chartItem.representedObject = Self.usageBreakdownChartID
@@ -346,7 +346,7 @@ extension StatusItemController {
         let breakdown = self.store.openAIDashboard?.dailyBreakdown ?? []
         guard !breakdown.isEmpty else { return false }
 
-        if !Self.menuCardRenderingEnabled {
+        if !self.menuCardRenderingEnabledForController {
             let chartItem = NSMenuItem()
             chartItem.isEnabled = true
             chartItem.representedObject = Self.creditsHistoryChartID
@@ -377,7 +377,7 @@ extension StatusItemController {
         guard let tokenSnapshot = self.tokenSnapshotForCostHistorySubmenu(provider: provider) else { return false }
         guard !tokenSnapshot.daily.isEmpty else { return false }
 
-        if !Self.menuCardRenderingEnabled {
+        if !self.menuCardRenderingEnabledForController {
             let chartItem = NSMenuItem()
             chartItem.isEnabled = true
             chartItem.representedObject = Self.costHistoryChartID
@@ -386,6 +386,12 @@ extension StatusItemController {
             return true
         }
 
+        // The SwiftUI view needs the callback at init, but the hosting view doesn't exist yet.
+        // A relay breaks the cycle: the closure captures relay strongly, relay holds the view weakly.
+        final class HostingRelay {
+            weak var hosting: MenuHostingView<CostHistoryChartMenuView>?
+        }
+        let relay = HostingRelay()
         let chartView = CostHistoryChartMenuView(
             provider: provider,
             daily: tokenSnapshot.daily,
@@ -393,14 +399,18 @@ extension StatusItemController {
             currencyCode: tokenSnapshot.currencyCode,
             historyDays: tokenSnapshot.historyDays,
             windowLabel: tokenSnapshot.historyLabel,
+            onHeightChange: { height in
+                relay.hosting?.applyMeasuredHeight(width: width, height: height)
+            },
             width: width)
-        let hosting = MenuHostingView(rootView: chartView)
-        hosting.frame = NSRect(
-            origin: .zero,
-            size: NSSize(width: width, height: self.hostedSubviewFittingHeight(for: hosting, width: width)))
+        let resolvedHosting = MenuHostingView(rootView: chartView)
+        relay.hosting = resolvedHosting
+        resolvedHosting.applyMeasuredHeight(
+            width: width,
+            height: self.hostedSubviewFittingHeight(for: resolvedHosting, width: width))
 
         let chartItem = NSMenuItem()
-        chartItem.view = hosting
+        chartItem.view = resolvedHosting
         chartItem.isEnabled = true
         chartItem.representedObject = Self.costHistoryChartID
         chartItem.toolTip = provider.rawValue
@@ -419,7 +429,7 @@ extension StatusItemController {
               !footprint.components.isEmpty
         else { return false }
 
-        if !Self.menuCardRenderingEnabled {
+        if !self.menuCardRenderingEnabledForController {
             let item = NSMenuItem()
             item.isEnabled = true
             item.representedObject = Self.storageBreakdownID
@@ -429,11 +439,24 @@ extension StatusItemController {
         }
 
         let maxHeight = self.storageBreakdownMenuMaxHeight()
-        let view = StorageBreakdownMenuView(footprint: footprint, width: width, maxHeight: maxHeight)
+        final class HostingRelay {
+            weak var hosting: MenuHostingView<StorageBreakdownMenuView>?
+            var collapsedHeight: CGFloat = 1
+        }
+        let relay = HostingRelay()
+        let view = StorageBreakdownMenuView(
+            footprint: footprint,
+            width: width,
+            maxHeight: maxHeight,
+            onExpansionHeightChange: { additionalHeight in
+                relay.hosting?.applyMeasuredHeight(
+                    width: width,
+                    height: min(maxHeight, relay.collapsedHeight + additionalHeight))
+            })
         let hosting = MenuHostingView(rootView: view)
-        hosting.frame = NSRect(
-            origin: .zero,
-            size: NSSize(width: width, height: self.hostedSubviewFittingHeight(for: hosting, width: width)))
+        relay.hosting = hosting
+        relay.collapsedHeight = self.hostedSubviewFittingHeight(for: hosting, width: width)
+        hosting.applyMeasuredHeight(width: width, height: relay.collapsedHeight)
 
         let item = NSMenuItem()
         item.view = hosting
@@ -460,7 +483,7 @@ extension StatusItemController {
               let modelUsage = snapshot.zaiUsage?.modelUsage
         else { return false }
 
-        if !Self.menuCardRenderingEnabled {
+        if !self.menuCardRenderingEnabledForController {
             let chartItem = NSMenuItem()
             chartItem.isEnabled = false
             chartItem.representedObject = Self.zaiHourlyUsageChartID

@@ -83,7 +83,7 @@ struct ProviderDetailView<SupplementaryContent: View>: View {
         else {
             return nil
         }
-        guard provider == .openrouter || provider == .mimo || provider == .moonshot else {
+        guard provider == .openrouter || provider == .mimo || provider == .moonshot || provider == .poe else {
             return (label: L("Plan"), value: rawPlan)
         }
 
@@ -94,6 +94,9 @@ struct ProviderDetailView<SupplementaryContent: View>: View {
             if !trimmedValue.isEmpty {
                 return (label: L("Balance"), value: trimmedValue)
             }
+        }
+        if provider == .mimo {
+            return (label: L("Plan"), value: rawPlan)
         }
         return (label: L("Balance"), value: rawPlan)
     }

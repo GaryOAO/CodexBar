@@ -407,9 +407,12 @@
 "language_ukrainian" = "Oekraïens";
 "language_japanese" = "Japans";
 "language_korean" = "Koreaans";
+"language_italian" = "Italiano";
 "language_swedish" = "Zweeds";
 "language_vietnamese" = "Vietnamees";
 "language_turkish" = "Türkçe";
+"language_indonesian" = "Indonesisch";
+"language_polish" = "Pools";
 "start_at_login_title" = "Begin bij Inloggen";
 "start_at_login_subtitle" = "Opent automatisch CodexBar wanneer u uw Mac start.";
 "show_cost_summary" = "Kostenoverzicht weergeven";
@@ -495,6 +498,8 @@
 "show_most_used_provider_subtitle" = "De menubalk toont automatisch de aanbieder die het dichtst bij de tarieflimiet zit.";
 "menu_bar_shows_percent_title" = "Menubalk toont percentage";
 "menu_bar_shows_percent_subtitle" = "Vervang critterbalken door brandingpictogrammen van de provider en een percentage.";
+"hide_critters_title" = "Critters verbergen";
+"hide_critters_subtitle" = "Toon eenvoudige meterbalken zonder gezicht en versieringen.";
 "display_mode_title" = "Weergavemodus";
 "display_mode_subtitle" = "Kies wat u wilt weergeven in de menubalk (Tempo toont gebruik vs. verwacht).";
 "section_menu_content" = "Menu-inhoud";
@@ -503,7 +508,7 @@
 "show_quota_warning_markers_title" = "Toon waarschuwingsmarkeringen voor quota";
 "show_quota_warning_markers_subtitle" = "Teken drempelmarkeringen op gebruiksbalken wanneer quotawaarschuwingen zijn geconfigureerd.";
 "weekly_progress_work_days_title" = "Wekelijkse voortgang werkdagen";
-"weekly_progress_work_days_subtitle" = "Teken daggrensmarkeringen op de wekelijkse gebruiksbalken.";
+"weekly_progress_work_days_subtitle" = "Stel werkdagen in voor markeringen op wekelijkse gebruiksbalken en tempoberekeningen.";
 "show_reset_time_as_clock_title" = "Toon resettijd als klok";
 "show_reset_time_as_clock_subtitle" = "Geef resettijden weer als absolute klokwaarden in plaats van aftellingen.";
 "show_provider_changelog_links_title" = "Toon provider changelog-links";
@@ -623,6 +628,8 @@
 "metric_pref_tertiary" = "Tertiair";
 "metric_pref_extra_usage" = "Extra gebruik";
 "metric_pref_average" = "Gemiddeld";
+"metric_mistral_payg" = "Pay-as-you-go";
+"metric_mistral_monthly_plan" = "Monthly Plan";
 
 /* Display modes */
 "display_mode_percent" = "Procent";
@@ -704,6 +711,7 @@
 "Resets %@" = "Reset %@";
 "Resets in %@" = "Resetten over %@";
 "Resets now" = "Wordt nu gereset";
+"reset_tomorrow_format" = "morgen, %@";
 "Lasts until reset" = "Gaat mee tot reset";
 "Updated %@" = "Bijgewerkt %@";
 "Updated %@h ago" = "%@u geleden bijgewerkt";
@@ -802,6 +810,7 @@
 "API spend" = "API-uitgaven";
 "Extra usage" = "Extra gebruik";
 "Quota usage" = "Quotumgebruik";
+"Your spend" = "Jouw uitgaven";
 "%.0f%% used" = "%.0f%% gebruikt";
 "Usage history (today)" = "Gebruiksgeschiedenis (vandaag)";
 "Usage history (%d days)" = "Gebruiksgeschiedenis (%d dagen)";
@@ -966,6 +975,9 @@
 "Day" = "Dag";
 "Deployment" = "Inzet";
 "Drag to reorder" = "Sleep om de volgorde te wijzigen";
+"Sort providers alphabetically" = "Providers alfabetisch sorteren";
+"Sort providers alphabetically (enabled first)" = "Providers alfabetisch sorteren (ingeschakelde eerst)";
+"Sorted alphabetically (enabled first) — click to use your custom order" = "Alfabetisch gesorteerd (ingeschakelde eerst) — klik om je aangepaste volgorde te gebruiken";
 "Endpoint" = "Eindpunt";
 "Enterprise host" = "Enterprise-host";
 "Extra usage balance: %@" = "Extra gebruikssaldo: %@";
@@ -1073,3 +1085,21 @@
 "Clear" = "Duidelijk";
 "No matching providers" = "Geen overeenkomende aanbieders";
 "Search providers" = "Zoekaanbieders";
+"language_arabic" = "العربية";
+"language_persian" = "فارسی";
+"language_thai" = "ไทย";
+"Limit Reset Credits" = "Limietresetcredits";
+"1 manual reset available" = "1 handmatige reset beschikbaar";
+"%d manual resets available" = "%d handmatige resets beschikbaar";
+"Next expires %@" = "Volgende verloopt %@";
+"Other (%d items)" = "Overig (%d onderdelen)";
+"Expand" = "Uitvouwen";
+"Collapse" = "Invouwen";
+"byte_unit_byte" = "byte";
+"byte_unit_bytes" = "bytes";
+"byte_unit_kilobyte" = "kilobyte";
+"byte_unit_kilobytes" = "kilobytes";
+"byte_unit_megabyte" = "megabyte";
+"byte_unit_megabytes" = "megabytes";
+"byte_unit_gigabyte" = "gigabyte";
+"byte_unit_gigabytes" = "gigabytes";

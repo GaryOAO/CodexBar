@@ -103,6 +103,40 @@ struct StatusMenuTests {
     }
 
     @Test
+    func `zai dashboard action follows selected region`() {
+        self.disableMenuCardsForTesting()
+        let settings = self.makeSettings()
+        settings.statusChecksEnabled = false
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = false
+
+        let fetcher = UsageFetcher()
+        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: self.makeStatusBarForTesting())
+
+        settings.zaiAPIRegion = .global
+        #expect(controller.dashboardURL(for: .zai) == ZaiAPIRegion.global.dashboardURL)
+        #expect(
+            controller.dashboardURL(for: .zai)?.absoluteString ==
+                "https://z.ai/manage-apikey/coding-plan/personal/my-plan")
+        #expect(
+            controller.dashboardURL(
+                for: .zai,
+                environment: [ZaiSettingsReader.apiHostKey: "open.bigmodel.cn"]) ==
+                ZaiAPIRegion.bigmodelCN.dashboardURL)
+
+        settings.zaiAPIRegion = .bigmodelCN
+        #expect(controller.dashboardURL(for: .zai) == ZaiAPIRegion.bigmodelCN.dashboardURL)
+        #expect(controller.dashboardURL(for: .zai)?.absoluteString == "https://bigmodel.cn/coding-plan/personal/usage")
+    }
+
+    @Test
     func `opencode go dashboard action follows configured workspace`() {
         self.disableMenuCardsForTesting()
         let settings = self.makeSettings()
@@ -434,7 +468,7 @@ struct StatusMenuTests {
             }
             let menu = controller.makeMenu()
             controller.menuWillOpen(menu)
-            StatusItemController.setMenuRefreshEnabledForTesting(false)
+            controller.menuRefreshEnabledOverrideForTesting = false
             try? await Task.sleep(for: .milliseconds(180))
         }
 
@@ -554,8 +588,7 @@ struct StatusMenuTests {
         let menu = controller.makeMenu()
         controller.menuWillOpen(menu)
         controller.openMenus[ObjectIdentifier(menu)] = menu
-        StatusItemController.setMenuRefreshEnabledForTesting(true)
-        defer { StatusItemController.resetMenuRefreshEnabledForTesting() }
+        controller.menuRefreshEnabledOverrideForTesting = true
 
         let initialSwitcher = menu.items.first?.view as? ProviderSwitcherView
         #expect(initialSwitcher != nil)
@@ -704,8 +737,7 @@ struct StatusMenuTests {
         let menu = controller.makeMenu()
         controller.menuWillOpen(menu)
         controller.openMenus[ObjectIdentifier(menu)] = menu
-        StatusItemController.setMenuRefreshEnabledForTesting(true)
-        defer { StatusItemController.resetMenuRefreshEnabledForTesting() }
+        controller.menuRefreshEnabledOverrideForTesting = true
 
         let initialButtons = self.switcherButtons(in: menu)
         #expect(initialButtons.count == activeProviders.count)

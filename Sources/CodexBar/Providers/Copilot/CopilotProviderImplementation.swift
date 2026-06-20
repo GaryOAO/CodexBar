@@ -1,9 +1,7 @@
 import AppKit
 import CodexBarCore
-import CodexBarMacroSupport
 import SwiftUI
 
-@ProviderImplementationRegistration
 struct CopilotProviderImplementation: ProviderImplementation {
     let id: UsageProvider = .copilot
     let supportsLoginFlow: Bool = true
@@ -184,7 +182,8 @@ struct CopilotProviderImplementation: ProviderImplementation {
             ProviderSettingsFieldDescriptor(
                 id: "copilot-enterprise-host",
                 title: "Enterprise host",
-                subtitle: "Optional. Enter your GitHub Enterprise host, for example octocorp.ghe.com. Leave blank for github.com.",
+                subtitle: "Optional. Enter your GitHub Enterprise host, for example octocorp.ghe.com. " +
+                    "Leave blank for github.com.",
                 kind: .plain,
                 placeholder: "github.com",
                 binding: context.stringBinding(\.copilotEnterpriseHost),

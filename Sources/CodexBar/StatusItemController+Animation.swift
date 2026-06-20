@@ -244,6 +244,7 @@ extension StatusItemController {
         let showUsed = self.settings.usageBarsShowUsed
         let showBrandPercent = self.settings.menuBarShowsBrandIconWithPercent
         let primaryProvider = self.primaryProviderForUnifiedIcon()
+        let resolverStyle = self.store.style(for: primaryProvider)
         let snapshot = self.store.snapshot(for: primaryProvider)
         let warningFlash = self.quotaWarningFlashActive(provider: primaryProvider)
 
@@ -252,29 +253,13 @@ extension StatusItemController {
         let resolved = snapshot.map {
             IconRemainingResolver.resolvedPercents(
                 snapshot: $0,
-                style: style,
+                style: resolverStyle,
                 showUsed: showUsed,
+                renderingStyle: style,
                 secondaryOverrideWindowID: self.settings.copilotIconSecondaryWindowOverrideID(snapshot: $0))
         }
         var primary = resolved?.primary
         var weekly = resolved?.secondary
-        if showUsed,
-           primaryProvider == .warp,
-           let remaining = snapshot?.secondary?.remainingPercent,
-           remaining <= 0
-        {
-            // Preserve Warp "no bonus/exhausted bonus" layout even in show-used mode.
-            weekly = 0
-        }
-        if showUsed,
-           primaryProvider == .warp,
-           let remaining = snapshot?.secondary?.remainingPercent,
-           remaining > 0,
-           weekly == 0
-        {
-            // In show-used mode, `0` means "unused", not "missing". Keep the weekly lane present.
-            weekly = Self.loadingPercentEpsilon
-        }
         var credits = self.menuBarCreditsRemainingForIcon(provider: primaryProvider, snapshot: snapshot)
         var stale = self.store.isStale(provider: primaryProvider)
         var morphProgress: Double?
@@ -308,13 +293,7 @@ extension StatusItemController {
         let tilt: CGFloat =
             style == .combined ? 0 : self.tiltAmount(for: primaryProvider) * .pi / 28
 
-        let statusIndicator: ProviderStatusIndicator = {
-            for provider in self.store.enabledProvidersForDisplay() {
-                let indicator = self.store.statusIndicator(for: provider)
-                if indicator.hasIssue { return indicator }
-            }
-            return .none
-        }()
+        let statusIndicator = self.store.statusIndicator(for: primaryProvider)
         if showBrandPercent,
            let brand = ProviderBrandIcon.image(for: primaryProvider)
         {
@@ -331,6 +310,7 @@ extension StatusItemController {
                 "text=\(displayText ?? "nil")",
                 "warningFlash=\(warningFlash ? "1" : "0")",
                 "anim=\(needsAnimation ? "1" : "0")",
+                "hideCritters=\(self.settings.menuBarHidesCritters ? "1" : "0")",
             ].joined(separator: "|")
             if self.shouldSkipMergedIconRender(signature) {
                 // AppKit can lose button title/image-position state independently of the cached render signature.
@@ -356,12 +336,16 @@ extension StatusItemController {
                 "status=\(statusIndicator.rawValue)",
                 "warningFlash=\(warningFlash ? "1" : "0")",
                 "anim=\(needsAnimation ? "1" : "0")",
+                "hideCritters=\(self.settings.menuBarHidesCritters ? "1" : "0")",
             ].joined(separator: "|")
             if self.shouldSkipMergedIconRender(signature) {
                 self.noteIconPerfRender(skipped: true)
                 return true
             }
-            let image = IconRenderer.makeMorphIcon(progress: morphProgress, style: style)
+            let image = IconRenderer.makeMorphIcon(
+                progress: morphProgress,
+                style: style,
+                hideCritters: self.settings.menuBarHidesCritters)
             self.setButtonImage(
                 warningFlash ? Self.quotaWarningFlashImage(base: image) : image, for: button)
         } else {
@@ -379,6 +363,7 @@ extension StatusItemController {
                 "tilt=\(Self.iconSignatureValue(Double(tilt)))",
                 "warningFlash=\(warningFlash ? "1" : "0")",
                 "anim=\(needsAnimation ? "1" : "0")",
+                "hideCritters=\(self.settings.menuBarHidesCritters ? "1" : "0")",
             ].joined(separator: "|")
             if self.shouldSkipMergedIconRender(signature) {
                 self.noteIconPerfRender(skipped: true)
@@ -393,7 +378,8 @@ extension StatusItemController {
                 blink: blink,
                 wiggle: wiggle,
                 tilt: tilt,
-                statusIndicator: statusIndicator)
+                statusIndicator: statusIndicator,
+                hideCritters: self.settings.menuBarHidesCritters)
             self.setButtonImage(
                 warningFlash ? Self.quotaWarningFlashImage(base: image) : image, for: button)
         }
@@ -485,23 +471,6 @@ extension StatusItemController {
         }
         var primary = resolved?.primary
         var weekly = resolved?.secondary
-        if showUsed,
-           provider == .warp,
-           let remaining = snapshot?.secondary?.remainingPercent,
-           remaining <= 0
-        {
-            // Preserve Warp "no bonus/exhausted bonus" layout even in show-used mode.
-            weekly = 0
-        }
-        if showUsed,
-           provider == .warp,
-           let remaining = snapshot?.secondary?.remainingPercent,
-           remaining > 0,
-           weekly == 0
-        {
-            // In show-used mode, `0` means "unused", not "missing". Keep the weekly lane present.
-            weekly = Self.loadingPercentEpsilon
-        }
         var credits = self.menuBarCreditsRemainingForIcon(provider: provider, snapshot: snapshot)
         var stale = self.store.isStale(provider: provider)
         var morphProgress: Double?
@@ -548,12 +517,16 @@ extension StatusItemController {
                 "status=\(statusIndicator.rawValue)",
                 "warningFlash=\(warningFlash ? "1" : "0")",
                 "loading=\(isLoading ? "1" : "0")",
+                "hideCritters=\(self.settings.menuBarHidesCritters ? "1" : "0")",
             ].joined(separator: "|")
             if self.shouldSkipProviderIconRender(provider: provider, signature: signature) {
                 self.noteIconPerfRender(skipped: true)
                 return true
             }
-            let image = IconRenderer.makeMorphIcon(progress: morphProgress, style: style)
+            let image = IconRenderer.makeMorphIcon(
+                progress: morphProgress,
+                style: style,
+                hideCritters: self.settings.menuBarHidesCritters)
             self.setButtonImage(
                 warningFlash ? Self.quotaWarningFlashImage(base: image) : image, for: button)
         } else {
@@ -571,6 +544,7 @@ extension StatusItemController {
                 "tilt=\(Self.iconSignatureValue(Double(tilt)))",
                 "warningFlash=\(warningFlash ? "1" : "0")",
                 "loading=\(isLoading ? "1" : "0")",
+                "hideCritters=\(self.settings.menuBarHidesCritters ? "1" : "0")",
             ].joined(separator: "|")
             if self.shouldSkipProviderIconRender(provider: provider, signature: signature) {
                 self.noteIconPerfRender(skipped: true)
@@ -585,7 +559,8 @@ extension StatusItemController {
                 blink: blink,
                 wiggle: wiggle,
                 tilt: tilt,
-                statusIndicator: statusIndicator)
+                statusIndicator: statusIndicator,
+                hideCritters: self.settings.menuBarHidesCritters)
             self.setButtonImage(
                 warningFlash ? Self.quotaWarningFlashImage(base: image) : image, for: button)
         }
@@ -700,8 +675,20 @@ extension StatusItemController {
         {
             return UsageFormatter.usdString(balance)
         }
+        if provider == .opencodego,
+           let balance = Self.openCodeGoZenBalanceDisplayText(snapshot: snapshot)
+        {
+            return balance
+        }
         if provider == .deepseek,
            let balance = Self.deepSeekBalanceDisplayText(snapshot: snapshot)
+        {
+            return balance
+        }
+        if provider == .mimo,
+           let balance = Self.miMoBalanceDisplayText(
+               snapshot: snapshot,
+               preference: self.settings.menuBarMetricPreference(for: provider, snapshot: snapshot))
         {
             return balance
         }
@@ -710,10 +697,19 @@ extension StatusItemController {
         {
             return balance
         }
-        if provider == .mistral,
-           let spend = Self.mistralSpendDisplayText(snapshot: snapshot)
+        if provider == .poe,
+           let balance = Self.poeBalanceDisplayText(snapshot: snapshot)
         {
-            return spend
+            return balance
+        }
+        if provider == .mistral {
+            let preference = self.settings.menuBarMetricPreference(for: provider, snapshot: snapshot)
+            let hasMonthlyWindow = snapshot?.extraRateWindows?.contains { $0.id == "mistral-monthly-plan" } == true
+            if preference != .monthlyPlan || !hasMonthlyWindow,
+               let spend = Self.mistralSpendDisplayText(snapshot: snapshot)
+            {
+                return spend
+            }
         }
         if provider == .kimik2,
            let credits = Self.kimiK2CreditsDisplayText(snapshot: snapshot)
@@ -765,12 +761,6 @@ extension StatusItemController {
                 resetTimeDisplayStyle: self.settings.resetTimeDisplayStyle,
                 now: now)
         }
-        let displayText = MenuBarDisplayText.displayText(
-            mode: mode,
-            percentWindow: percentWindow,
-            pace: pace,
-            showUsed: self.settings.usageBarsShowUsed)
-
         if mode == .percent,
            !self.settings.usageBarsShowUsed,
            codexProjection?.menuBarFallback == .creditsBalance,
@@ -782,8 +772,21 @@ extension StatusItemController {
                     .creditsString(from: creditsRemaining)
                     .replacingOccurrences(of: " left", with: "")
         }
-
-        return displayText
+        if provider == .codex,
+           mode == .percent,
+           self.settings.menuBarMetricPreference(for: .codex, snapshot: snapshot) == .primaryAndSecondary,
+           let combinedText = MenuBarDisplayText.codexCombinedPercentText(
+               sessionWindow: codexProjection?.rateWindow(for: .session),
+               weeklyWindow: codexProjection?.rateWindow(for: .weekly),
+               showUsed: self.settings.usageBarsShowUsed)
+        {
+            return combinedText
+        }
+        return MenuBarDisplayText.displayText(
+            mode: mode,
+            percentWindow: percentWindow,
+            pace: pace,
+            showUsed: self.settings.usageBarsShowUsed)
     }
 
     nonisolated static func deepSeekBalanceDisplayText(snapshot: UsageSnapshot?) -> String? {
@@ -798,6 +801,23 @@ extension StatusItemController {
 
         let balance = rawValue.split(separator: " ", maxSplits: 1).first
         return balance.map(String.init)
+    }
+
+    nonisolated static func miMoBalanceDisplayText(
+        snapshot: UsageSnapshot?,
+        preference: MenuBarMetricPreference) -> String?
+    {
+        guard let snapshot, let mimoUsage = snapshot.mimoUsage else { return nil }
+        if snapshot.primary != nil, preference != .secondary { return nil }
+        let detail = mimoUsage.balanceDetail
+        return detail.components(separatedBy: " (Paid:").first
+    }
+
+    nonisolated static func poeBalanceDisplayText(snapshot: UsageSnapshot?) -> String? {
+        self.displayValue(
+            from: snapshot?.loginMethod(for: .poe),
+            prefix: "Balance:",
+            removingSuffix: "")
     }
 
     nonisolated static func moonshotBalanceDisplayText(snapshot: UsageSnapshot?) -> String? {
@@ -831,6 +851,17 @@ extension StatusItemController {
         guard let cost = snapshot?.providerCost,
               cost.limit > 0,
               cost.used >= 0
+        else {
+            return nil
+        }
+        return UsageFormatter.currencyString(cost.used, currencyCode: cost.currencyCode)
+    }
+
+    nonisolated static func openCodeGoZenBalanceDisplayText(snapshot: UsageSnapshot?) -> String? {
+        guard snapshot?.primary == nil,
+              snapshot?.secondary == nil,
+              let cost = snapshot?.providerCost,
+              cost.period == "Zen balance"
         else {
             return nil
         }

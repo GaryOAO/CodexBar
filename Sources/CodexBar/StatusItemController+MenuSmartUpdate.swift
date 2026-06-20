@@ -49,6 +49,8 @@ extension StatusItemController {
                     menu,
                     fromIndex: contentStartIndex,
                     with: cachedItems)
+                // Cached items may have changed refresh state while detached from a menu.
+                self.updatePersistentRefreshItemsEnabled()
                 self.cacheMergedSwitcherContent(
                     displacedItems,
                     in: menu,
@@ -65,7 +67,7 @@ extension StatusItemController {
                     selection: context.switcherSelection,
                     contentStartIndex: contentStartIndex,
                     menuWidth: context.menuWidth,
-                    contentVersion: self.menuContentVersion)
+                    contentVersion: self.menuSession.contentVersion)
                 return
             }
 
@@ -91,7 +93,7 @@ extension StatusItemController {
                 selection: context.switcherSelection,
                 contentStartIndex: contentStartIndex,
                 menuWidth: context.menuWidth,
-                contentVersion: self.menuContentVersion)
+                contentVersion: self.menuSession.contentVersion)
         }
     }
 
