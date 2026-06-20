@@ -8,8 +8,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const resources = path.join(repoRoot, "Sources/CodexBar/Resources");
 const english = readCatalog("en");
 const englishKeys = Object.keys(english).sort();
-const strictLocales = ["ar", "fa", "th"];
-const languageKeys = ["language_arabic", "language_persian", "language_thai"];
+// Fork: app is English-only (non-en localizations removed in the pet/claude/codex slim-down).
+const strictLocales = [];
+const languageKeys = [];
 const isTest = process.argv.includes("--test");
 
 function readCatalog(locale) {

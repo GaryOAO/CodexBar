@@ -213,7 +213,12 @@ struct CodexConsumerProjectionTests {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let configStore = testConfigStore(suiteName: suite)
-        let settings = SettingsStore(userDefaults: defaults, configStore: configStore, codexCookieStore: InMemoryCookieHeaderStore(), claudeCookieStore: InMemoryCookieHeaderStore(), tokenAccountStore: InMemoryTokenAccountStore())
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            codexCookieStore: InMemoryCookieHeaderStore(),
+            claudeCookieStore: InMemoryCookieHeaderStore(),
+            tokenAccountStore: InMemoryTokenAccountStore())
 
         return UsageStore(
             fetcher: UsageFetcher(environment: [:]),

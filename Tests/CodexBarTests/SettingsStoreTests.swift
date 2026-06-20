@@ -6,7 +6,6 @@ import Testing
 
 @Suite(.serialized)
 @MainActor
-// swiftlint:disable:next type_body_length
 struct SettingsStoreTests {
     private final class ObservationFlag: @unchecked Sendable {
         private let lock = NSLock()

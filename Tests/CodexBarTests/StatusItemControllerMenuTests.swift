@@ -85,7 +85,7 @@ struct StatusItemControllerMenuTests {
 
     @Test
     @MainActor
-    func `update menu action installs prepared update instead of checking again`() throws {
+    func `update menu action installs prepared update instead of checking again`() {
         let settings = testSettingsStore(suiteName: "StatusItemControllerMenuTests")
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual

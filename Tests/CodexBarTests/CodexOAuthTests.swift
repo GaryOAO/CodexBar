@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import CodexBarCore
 
+// swiftlint:disable:next type_body_length
 struct CodexOAuthTests {
     private func makeContext(sourceMode: ProviderSourceMode = .auto) -> ProviderFetchContext {
         let browserDetection = BrowserDetection(cacheTTL: 0)

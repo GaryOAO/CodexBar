@@ -71,7 +71,12 @@ struct PreferencesPaneSmokeTests {
         defaults.removePersistentDomain(forName: suite)
         let configStore = testConfigStore(suiteName: suite)
 
-        return SettingsStore(userDefaults: defaults, configStore: configStore, codexCookieStore: InMemoryCookieHeaderStore(), claudeCookieStore: InMemoryCookieHeaderStore(), tokenAccountStore: InMemoryTokenAccountStore())
+        return SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            codexCookieStore: InMemoryCookieHeaderStore(),
+            claudeCookieStore: InMemoryCookieHeaderStore(),
+            tokenAccountStore: InMemoryTokenAccountStore())
     }
 
     private static func makeUsageStore(settings: SettingsStore) -> UsageStore {

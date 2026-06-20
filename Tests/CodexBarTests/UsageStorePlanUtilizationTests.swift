@@ -1077,7 +1077,10 @@ extension UsageStorePlanUtilizationTests {
         } catch {
             fatalError("Failed to seed isolated managed Codex account store: \(error)")
         }
-        let isolatedSettings = SettingsStore(userDefaults: defaults, configStore: configStore, tokenAccountStore: InMemoryTokenAccountStore())
+        let isolatedSettings = SettingsStore(
+            userDefaults: defaults,
+            configStore: configStore,
+            tokenAccountStore: InMemoryTokenAccountStore())
         let store = UsageStore(
             fetcher: UsageFetcher(),
             browserDetection: BrowserDetection(cacheTTL: 0),

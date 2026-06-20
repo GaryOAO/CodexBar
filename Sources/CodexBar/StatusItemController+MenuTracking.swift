@@ -340,7 +340,6 @@ extension StatusItemController {
                     parts.append(self.providerIdentitySignature(accountSnapshot.snapshot?.identity(for: target)))
                 }
             }
-
         }
         return parts.joined(separator: "|")
     }

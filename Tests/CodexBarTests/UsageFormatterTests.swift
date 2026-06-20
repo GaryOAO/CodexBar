@@ -355,5 +355,4 @@ struct UsageFormatterTests {
         #expect(UsageFormatter.byteCountStringLong(1024 * 1024 + 1) == "1.0 [byte_unit_megabyte]")
         #expect(UsageFormatter.byteCountStringLong(.min) == "-8589934592 [byte_unit_gigabytes]")
     }
-
 }

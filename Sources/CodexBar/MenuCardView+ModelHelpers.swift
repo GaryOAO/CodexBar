@@ -437,5 +437,4 @@ extension UsageMenuCardView.Model {
             return nil
         }
     }
-
 }

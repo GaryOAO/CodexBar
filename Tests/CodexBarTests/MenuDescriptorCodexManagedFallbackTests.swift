@@ -11,7 +11,12 @@ struct MenuDescriptorCodexManagedFallbackTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
 
-        let settings = SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite), codexCookieStore: InMemoryCookieHeaderStore(), claudeCookieStore: InMemoryCookieHeaderStore(), tokenAccountStore: InMemoryTokenAccountStore())
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: testConfigStore(suiteName: suite),
+            codexCookieStore: InMemoryCookieHeaderStore(),
+            claudeCookieStore: InMemoryCookieHeaderStore(),
+            tokenAccountStore: InMemoryTokenAccountStore())
         settings.statusChecksEnabled = false
 
         let ambientHome = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -71,7 +76,12 @@ struct MenuDescriptorCodexManagedFallbackTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
 
-        let settings = SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite), codexCookieStore: InMemoryCookieHeaderStore(), claudeCookieStore: InMemoryCookieHeaderStore(), tokenAccountStore: InMemoryTokenAccountStore())
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: testConfigStore(suiteName: suite),
+            codexCookieStore: InMemoryCookieHeaderStore(),
+            claudeCookieStore: InMemoryCookieHeaderStore(),
+            tokenAccountStore: InMemoryTokenAccountStore())
         settings.statusChecksEnabled = false
 
         let fetcher = UsageFetcher()

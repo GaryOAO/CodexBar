@@ -150,7 +150,9 @@ struct ClaudeDebugDiagnosticsTests {
             UsageStore(
                 fetcher: UsageFetcher(),
                 browserDetection: BrowserDetection(cacheTTL: 0),
-                settings: SettingsStore(userDefaults: UserDefaults(), configStore: testConfigStore(suiteName: "ClaudeDebugDiagnosticsTests-\(UUID().uuidString)")))
+                settings: SettingsStore(
+                    userDefaults: UserDefaults(),
+                    configStore: testConfigStore(suiteName: "ClaudeDebugDiagnosticsTests-\(UUID().uuidString)")))
         }
         let text = await store.debugClaudeDump()
 

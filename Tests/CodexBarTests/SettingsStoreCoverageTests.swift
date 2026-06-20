@@ -403,6 +403,11 @@ struct SettingsStoreCoverageTests {
         configStore: CodexBarConfigStore)
         -> SettingsStore
     {
-        SettingsStore(userDefaults: userDefaults, configStore: configStore, codexCookieStore: InMemoryCookieHeaderStore(), claudeCookieStore: InMemoryCookieHeaderStore(), tokenAccountStore: InMemoryTokenAccountStore())
+        SettingsStore(
+            userDefaults: userDefaults,
+            configStore: configStore,
+            codexCookieStore: InMemoryCookieHeaderStore(),
+            claudeCookieStore: InMemoryCookieHeaderStore(),
+            tokenAccountStore: InMemoryTokenAccountStore())
     }
 }

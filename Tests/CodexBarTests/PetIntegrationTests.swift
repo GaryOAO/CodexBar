@@ -414,7 +414,12 @@ struct PetIntegrationTests {
     }
 
     private static func makeSettingsStore(userDefaults: UserDefaults, suite: String) -> SettingsStore {
-        SettingsStore(userDefaults: userDefaults, configStore: testConfigStore(suiteName: suite), codexCookieStore: InMemoryCookieHeaderStore(), claudeCookieStore: InMemoryCookieHeaderStore(), tokenAccountStore: InMemoryTokenAccountStore())
+        SettingsStore(
+            userDefaults: userDefaults,
+            configStore: testConfigStore(suiteName: suite),
+            codexCookieStore: InMemoryCookieHeaderStore(),
+            claudeCookieStore: InMemoryCookieHeaderStore(),
+            tokenAccountStore: InMemoryTokenAccountStore())
     }
 
     private static func makeUsageStore(settings: SettingsStore) -> UsageStore {

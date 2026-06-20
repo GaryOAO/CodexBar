@@ -5,7 +5,6 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-// swiftlint:disable:next type_body_length
 struct StatusItemAnimationTests {
     private func maxAlpha(in rep: NSBitmapImageRep) -> CGFloat {
         var maxAlpha: CGFloat = 0

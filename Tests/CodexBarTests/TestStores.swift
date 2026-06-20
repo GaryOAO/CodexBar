@@ -66,7 +66,12 @@ func testSettingsStore(
         preconditionFailure("Could not create test defaults suite")
     }
     defaults.removePersistentDomain(forName: isolatedSuiteName)
-    return SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: isolatedSuiteName), codexCookieStore: InMemoryCookieHeaderStore(), claudeCookieStore: InMemoryCookieHeaderStore(), tokenAccountStore: tokenAccountStore)
+    return SettingsStore(
+        userDefaults: defaults,
+        configStore: testConfigStore(suiteName: isolatedSuiteName),
+        codexCookieStore: InMemoryCookieHeaderStore(),
+        claudeCookieStore: InMemoryCookieHeaderStore(),
+        tokenAccountStore: tokenAccountStore)
 }
 
 #if os(macOS)

@@ -58,7 +58,8 @@ struct OpenAIWebAccountSwitchTests {
 
     @Test
     func `clears dashboard when profile source changes with the same email`() {
-        let settings = SettingsStore(configStore: testConfigStore(suiteName: "OpenAIWebAccountSwitchTests-profile-source"))
+        let settings =
+            SettingsStore(configStore: testConfigStore(suiteName: "OpenAIWebAccountSwitchTests-profile-source"))
         let store = UsageStore(
             fetcher: UsageFetcher(),
             browserDetection: BrowserDetection(cacheTTL: 0),

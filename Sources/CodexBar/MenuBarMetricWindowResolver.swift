@@ -83,8 +83,8 @@ enum MenuBarMetricWindowResolver {
 
     private static func automaticWindow(provider: UsageProvider, snapshot: UsageSnapshot) -> RateWindow? {
         if provider == .claude,
-           Self.shouldUseClaudeSpendLimit(providerCost: snapshot.providerCost, snapshot: snapshot),
-           let extraUsage = Self.extraUsageWindow(snapshot: snapshot)
+           self.shouldUseClaudeSpendLimit(providerCost: snapshot.providerCost, snapshot: snapshot),
+           let extraUsage = extraUsageWindow(snapshot: snapshot)
         {
             return extraUsage
         }

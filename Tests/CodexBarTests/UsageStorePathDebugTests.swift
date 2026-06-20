@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct UsageStorePathDebugTests {
     @Test
-    func `refresh path debug info populates snapshot`() async throws {
+    func `refresh path debug info populates snapshot`() async {
         let settings = testSettingsStore(suiteName: "UsageStorePathDebugTests-path")
         let store = UsageStore(
             fetcher: UsageFetcher(),

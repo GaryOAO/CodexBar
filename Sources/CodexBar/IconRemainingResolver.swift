@@ -65,9 +65,8 @@ enum IconRemainingResolver {
             snapshot: snapshot,
             style: style,
             secondaryOverrideWindowID: secondaryOverrideWindowID)
-        let percents = (
+        return (
             primary: showUsed ? windows.primary?.usedPercent : windows.primary?.remainingPercent,
             secondary: showUsed ? windows.secondary?.usedPercent : windows.secondary?.remainingPercent)
-        return percents
     }
 }

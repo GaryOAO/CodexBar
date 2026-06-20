@@ -852,5 +852,4 @@ struct StatusMenuSwitcherClickTests {
             isARepeat: false,
             keyCode: keyCode))
     }
-
 }

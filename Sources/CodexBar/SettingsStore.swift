@@ -550,7 +550,7 @@ extension SettingsStore {
 
     private static func loadMenuBarMetricPreferences(userDefaults: UserDefaults) -> [String: String] {
         let storedPreferences = userDefaults.dictionary(forKey: "menuBarMetricPreferences") as? [String: String] ?? [:]
-        let preferences: [String: String] = if !storedPreferences.isEmpty {
+        return if !storedPreferences.isEmpty {
             storedPreferences
         } else if let menuBarMetricRaw = userDefaults.string(forKey: "menuBarMetricPreference"),
                   let legacyPreference = MenuBarMetricPreference(rawValue: menuBarMetricRaw)
@@ -560,8 +560,6 @@ extension SettingsStore {
         } else {
             [:]
         }
-
-        return preferences
     }
 
     private static func loadMultiAccountMenuLayoutRaw(userDefaults: UserDefaults) -> String {

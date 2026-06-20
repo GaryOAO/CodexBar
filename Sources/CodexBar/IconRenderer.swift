@@ -1,7 +1,6 @@
 import AppKit
 import CodexBarCore
 
-// swiftlint:disable:next type_body_length
 enum IconRenderer {
     private static let creditsCap: Double = 1000
     private static let baseSize = NSSize(width: 18, height: 18)
