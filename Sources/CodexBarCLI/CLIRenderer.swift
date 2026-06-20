@@ -34,6 +34,8 @@ enum CLIRenderer {
             now: now,
             lines: &lines)
         self.appendTertiaryLines(snapshot: snapshot, labels: labels, context: context, now: now, lines: &lines)
+        self.appendDeepgramLines(snapshot: snapshot, useColor: context.useColor, lines: &lines)
+        self.appendAmpBalanceLines(snapshot: snapshot, useColor: context.useColor, lines: &lines)
         self.appendLimitsUnavailableLine(
             provider: provider,
             snapshot: snapshot,
@@ -126,6 +128,45 @@ enum CLIRenderer {
         }
     }
 
+    private static func appendDeepgramLines(
+        snapshot: UsageSnapshot,
+        useColor: Bool,
+        lines: inout [String])
+    {
+        guard let usage = snapshot.deepgramUsage else { return }
+        for line in usage.displayLines {
+            let parts = line.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                lines.append(self.labelValueLine(
+                    parts[0].trimmingCharacters(in: .whitespacesAndNewlines),
+                    value: parts[1].trimmingCharacters(in: .whitespacesAndNewlines),
+                    useColor: useColor))
+            } else {
+                lines.append(self.labelValueLine("Usage", value: line, useColor: useColor))
+            }
+        }
+    }
+
+    private static func appendAmpBalanceLines(
+        snapshot: UsageSnapshot,
+        useColor: Bool,
+        lines: inout [String])
+    {
+        guard let usage = snapshot.ampUsage else { return }
+        if let individualCredits = usage.individualCredits {
+            lines.append(self.labelValueLine(
+                "Individual credits",
+                value: UsageFormatter.currencyString(individualCredits, currencyCode: "USD"),
+                useColor: useColor))
+        }
+        for workspace in usage.workspaceBalances {
+            lines.append(self.labelValueLine(
+                "Workspace \(workspace.name)",
+                value: UsageFormatter.currencyString(workspace.remaining, currencyCode: "USD"),
+                useColor: useColor))
+        }
+    }
+
     private struct RateWindowLabels {
         let primary: String
         let secondary: String
@@ -146,8 +187,11 @@ enum CLIRenderer {
                 showsTertiary: true)
         }
 
+        let primaryLabel = provider == .grok
+            ? GrokProviderDescriptor.primaryLabel(window: snapshot.primary) ?? metadata.sessionLabel
+            : metadata.sessionLabel
         return RateWindowLabels(
-            primary: metadata.sessionLabel,
+            primary: primaryLabel,
             secondary: metadata.weeklyLabel,
             tertiary: metadata.opusLabel ?? "Sonnet",
             showsTertiary: metadata.supportsOpus)
@@ -345,7 +389,10 @@ enum CLIRenderer {
         useColor: Bool,
         now: Date) -> String?
     {
-        guard provider == .codex || provider == .claude || provider == .opencode else { return nil }
+        guard provider == .codex || provider == .claude || provider == .opencode || provider == .ollama else {
+            return nil
+        }
+        if provider == .ollama, window.windowMinutes == nil { return nil }
         guard window.remainingPercent > 0 else { return nil }
         guard let pace = UsagePace.weekly(window: window, now: now, defaultWindowMinutes: 10080) else { return nil }
         guard pace.expectedUsedPercent >= Self.paceMinimumExpectedPercent else { return nil }

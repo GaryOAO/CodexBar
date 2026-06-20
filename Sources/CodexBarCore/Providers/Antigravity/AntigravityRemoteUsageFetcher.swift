@@ -61,7 +61,7 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         dataLoader: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = { request in
-            try await URLSession.shared.data(for: request)
+            try await ProviderHTTPClient.shared.data(for: request)
         },
         oauthClientResolver: @escaping @Sendable () -> AntigravityOAuthClient? = {
             AntigravityOAuthConfig.resolvedClient()
@@ -146,7 +146,8 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         return AntigravityStatusSnapshot(
             modelQuotas: models,
             accountEmail: claims.email,
-            accountPlan: Self.resolvePlan(response: codeAssist, claims: claims))
+            accountPlan: Self.resolvePlan(response: codeAssist, claims: claims),
+            source: .remote)
     }
 
     private static func shouldRefresh(expiryDate: Date?, now: Date) -> Bool {
@@ -208,26 +209,97 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
                 projectId: projectId,
                 timeout: timeout,
                 dataLoader: dataLoader)
-            return try Self.parseModelQuotas(response)
+            let modelQuotas = try Self.parseModelQuotas(response)
+            if Self.shouldVerifyFullRemoteQuotas(modelQuotas),
+               let quotaBuckets = try? await Self.fetchQuotaBucketsIfPermitted(
+                   accessToken: accessToken,
+                   projectId: projectId,
+                   timeout: timeout,
+                   dataLoader: dataLoader),
+               Self.hasConsumedQuota(quotaBuckets)
+            {
+                return Self.mergeVerifiedQuotas(modelQuotas: modelQuotas, verifiedQuotas: quotaBuckets)
+            }
+            return modelQuotas
         } catch let error as AntigravityRemoteFetchError {
             guard case .permissionDenied = error else {
                 throw error
             }
             Self.log.info("Falling back to retrieveUserQuota for Antigravity remote usage")
-            do {
-                let response = try await Self.retrieveUserQuota(
-                    accessToken: accessToken,
-                    projectId: projectId,
-                    timeout: timeout,
-                    dataLoader: dataLoader)
-                return try Self.parseQuotaBuckets(response)
-            } catch let quotaError as AntigravityRemoteFetchError {
-                guard case .permissionDenied = quotaError else {
-                    throw quotaError
-                }
-                Self.log.info("Antigravity remote quota endpoints are not permitted for this account")
-                return []
+            return try await Self.fetchQuotaBucketsIfPermitted(
+                accessToken: accessToken,
+                projectId: projectId,
+                timeout: timeout,
+                dataLoader: dataLoader) ?? []
+        }
+    }
+
+    private static func mergeVerifiedQuotas(
+        modelQuotas: [AntigravityModelQuota],
+        verifiedQuotas: [AntigravityModelQuota]) -> [AntigravityModelQuota]
+    {
+        var verifiedByModelID = Dictionary(
+            uniqueKeysWithValues: verifiedQuotas.map { (Self.quotaKey($0), $0) })
+        var merged = modelQuotas.map { modelQuota in
+            guard let verifiedQuota = verifiedByModelID.removeValue(forKey: Self.quotaKey(modelQuota)) else {
+                return modelQuota
             }
+            let resetTime = verifiedQuota.resetTime ?? modelQuota.resetTime
+            return AntigravityModelQuota(
+                label: modelQuota.label,
+                modelId: modelQuota.modelId,
+                remainingFraction: verifiedQuota.remainingFraction ?? modelQuota.remainingFraction,
+                resetTime: resetTime,
+                resetDescription: resetTime.map { UsageFormatter.resetDescription(from: $0) })
+        }
+        let unmatchedVerifiedQuotas = verifiedByModelID.values
+            .filter { $0.remainingFraction != nil }
+            .sorted { lhs, rhs in
+                lhs.modelId.localizedCaseInsensitiveCompare(rhs.modelId) == .orderedAscending
+            }
+        merged.append(contentsOf: unmatchedVerifiedQuotas)
+        return merged
+    }
+
+    private static func quotaKey(_ quota: AntigravityModelQuota) -> String {
+        quota.modelId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func shouldVerifyFullRemoteQuotas(_ quotas: [AntigravityModelQuota]) -> Bool {
+        guard !quotas.isEmpty else { return false }
+        return quotas.allSatisfy { quota in
+            guard let remaining = quota.remainingFraction else { return false }
+            return remaining >= 0.999
+        }
+    }
+
+    private static func hasConsumedQuota(_ quotas: [AntigravityModelQuota]) -> Bool {
+        quotas.contains { quota in
+            guard let remaining = quota.remainingFraction else { return false }
+            return remaining < 0.999
+        }
+    }
+
+    private static func fetchQuotaBucketsIfPermitted(
+        accessToken: String,
+        projectId: String?,
+        timeout: TimeInterval,
+        dataLoader: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)) async throws
+        -> [AntigravityModelQuota]?
+    {
+        do {
+            let response = try await Self.retrieveUserQuota(
+                accessToken: accessToken,
+                projectId: projectId,
+                timeout: timeout,
+                dataLoader: dataLoader)
+            return try Self.parseQuotaBuckets(response)
+        } catch let quotaError as AntigravityRemoteFetchError {
+            guard case .permissionDenied = quotaError else {
+                throw quotaError
+            }
+            Self.log.info("Antigravity remote quota endpoint is not permitted for this account")
+            return nil
         }
     }
 
@@ -329,10 +401,7 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await dataLoader(request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AntigravityRemoteFetchError.apiError("Invalid response")
-        }
+        let httpResponse = try await ProviderHTTPTransportHandler(dataLoader).response(for: request)
 
         switch httpResponse.statusCode {
         case 200:
@@ -340,15 +409,16 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
         case 401:
             throw AntigravityRemoteFetchError.notLoggedIn
         case 403:
-            let message = String(data: data, encoding: .utf8)?.trimmedNonEmpty ?? "HTTP 403"
+            let message = String(data: httpResponse.data, encoding: .utf8)?.trimmedNonEmpty ?? "HTTP 403"
             throw AntigravityRemoteFetchError.permissionDenied(message)
         default:
-            let message = String(data: data, encoding: .utf8)?.trimmedNonEmpty ?? "HTTP \(httpResponse.statusCode)"
+            let message = String(data: httpResponse.data, encoding: .utf8)?.trimmedNonEmpty
+                ?? "HTTP \(httpResponse.statusCode)"
             throw AntigravityRemoteFetchError.apiError("HTTP \(httpResponse.statusCode): \(message)")
         }
 
         do {
-            return try JSONDecoder().decode(Response.self, from: data)
+            return try JSONDecoder().decode(Response.self, from: httpResponse.data)
         } catch {
             throw AntigravityRemoteFetchError.parseFailed(error.localizedDescription)
         }
@@ -500,14 +570,11 @@ public struct AntigravityRemoteUsageFetcher: Sendable {
             "grant_type": "refresh_token",
         ])
 
-        let (data, response) = try await context.dataLoader(request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AntigravityRemoteFetchError.apiError("Invalid refresh response")
-        }
+        let httpResponse = try await ProviderHTTPTransportHandler(context.dataLoader).response(for: request)
         guard httpResponse.statusCode == 200 else {
             throw AntigravityRemoteFetchError.notLoggedIn
         }
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let json = try JSONSerialization.jsonObject(with: httpResponse.data) as? [String: Any],
               let accessToken = json["access_token"] as? String
         else {
             throw AntigravityRemoteFetchError.parseFailed("Could not parse refresh response")

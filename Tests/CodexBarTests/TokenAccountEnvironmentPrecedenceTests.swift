@@ -108,6 +108,51 @@ struct TokenAccountEnvironmentPrecedenceTests {
     }
 
     @Test
+    func `stepfun CLI snapshot reads manual token from region field`() throws {
+        let config = CodexBarConfig(
+            providers: [
+                ProviderConfig(
+                    id: .stepfun,
+                    region: "Oasis-Token=manual-token; Oasis-Webid=web"),
+            ])
+        let selection = TokenAccountCLISelection(label: nil, index: nil, allAccounts: false)
+        let tokenContext = try TokenAccountCLIContext(selection: selection, config: config, verbose: false)
+        let snapshot = try #require(tokenContext.settingsSnapshot(for: .stepfun, account: nil))
+        let stepfunSettings = try #require(snapshot.stepfun)
+
+        #expect(stepfunSettings.cookieSource == .manual)
+        #expect(stepfunSettings.manualToken == "Oasis-Token=manual-token; Oasis-Webid=web")
+    }
+
+    @Test
+    func `stepfun CLI token account overrides region manual token`() throws {
+        let account = ProviderTokenAccount(
+            id: UUID(),
+            label: "StepFun",
+            token: "account-token",
+            addedAt: Date().timeIntervalSince1970,
+            lastUsed: nil)
+        let config = CodexBarConfig(
+            providers: [
+                ProviderConfig(
+                    id: .stepfun,
+                    region: "manual-token",
+                    tokenAccounts: ProviderTokenAccountData(
+                        version: 1,
+                        accounts: [account],
+                        activeIndex: 0)),
+            ])
+        let selection = TokenAccountCLISelection(label: nil, index: nil, allAccounts: false)
+        let tokenContext = try TokenAccountCLIContext(selection: selection, config: config, verbose: false)
+        let resolvedAccount = try #require(tokenContext.resolvedAccounts(for: .stepfun).first)
+        let snapshot = try #require(tokenContext.settingsSnapshot(for: .stepfun, account: resolvedAccount))
+        let stepfunSettings = try #require(snapshot.stepfun)
+
+        #expect(stepfunSettings.cookieSource == .manual)
+        #expect(stepfunSettings.manualToken == "account-token")
+    }
+
+    @Test
     func `claude OAuth token account overrides environment in app environment builder`() {
         let settings = Self.makeSettingsStore(suite: "TokenAccountEnvironmentPrecedenceTests-claude-app")
         settings.addTokenAccount(provider: .claude, label: "OAuth", token: "Bearer sk-ant-oat-account-token")
@@ -367,6 +412,91 @@ struct TokenAccountEnvironmentPrecedenceTests {
         #expect(tokenContext.effectiveSourceMode(base: .cli, provider: .claude, account: session) == .web)
         #expect(sessionSnapshot.cookieSource == .manual)
         #expect(sessionSnapshot.manualCookieHeader == "sessionKey=sk-ant-session-token")
+    }
+
+    @Test
+    func `codex all accounts selection exposes visible managed accounts and scopes CLI homes`() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-cli-all-accounts-\(UUID().uuidString)", isDirectory: true)
+        let ambientHome = root.appendingPathComponent("ambient", isDirectory: true)
+        let firstHome = root.appendingPathComponent("first", isDirectory: true)
+        let secondHome = root.appendingPathComponent("second", isDirectory: true)
+        try FileManager.default.createDirectory(at: ambientHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: firstHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondHome, withIntermediateDirectories: true)
+        let storeURL = root.appendingPathComponent("managed-codex-accounts.json")
+        let firstID = UUID()
+        let secondID = UUID()
+        let accounts = ManagedCodexAccountSet(version: FileManagedCodexAccountStore.currentVersion, accounts: [
+            ManagedCodexAccount(
+                id: firstID,
+                email: "FIRST@EXAMPLE.COM",
+                workspaceLabel: "Team",
+                managedHomePath: firstHome.path,
+                createdAt: 0,
+                updatedAt: 0,
+                lastAuthenticatedAt: nil),
+            ManagedCodexAccount(
+                id: secondID,
+                email: "second@example.com",
+                workspaceLabel: "Personal",
+                managedHomePath: secondHome.path,
+                createdAt: 0,
+                updatedAt: 0,
+                lastAuthenticatedAt: nil),
+        ])
+        try FileManagedCodexAccountStore(fileURL: storeURL).storeAccounts(accounts)
+        let config = CodexBarConfig(providers: [
+            ProviderConfig(id: .codex, codexActiveSource: .managedAccount(id: secondID)),
+        ])
+        let context = try TokenAccountCLIContext(
+            selection: TokenAccountCLISelection(label: nil, index: nil, allAccounts: true),
+            config: config,
+            verbose: false,
+            baseEnvironment: ["CODEX_HOME": ambientHome.path],
+            managedCodexAccountStoreURL: storeURL)
+
+        let projection = context.visibleCodexAccounts()
+        #expect(projection.visibleAccounts.map(\.menuDisplayName) == [
+            "first@example.com — Team",
+            "second@example.com",
+        ])
+        #expect(projection.visibleAccounts.map(\.selectionSource) == [
+            .managedAccount(id: firstID),
+            .managedAccount(id: secondID),
+        ])
+        #expect(projection.visibleAccounts.first { $0.email == "second@example.com" }?.isActive == true)
+
+        let firstEnv = context.environment(
+            base: ["CODEX_HOME": ambientHome.path],
+            provider: .codex,
+            account: nil,
+            codexActiveSourceOverride: .managedAccount(id: firstID))
+        #expect(firstEnv["CODEX_HOME"] == firstHome.path)
+
+        let liveEnv = context.environment(
+            base: ["CODEX_HOME": ambientHome.path],
+            provider: .codex,
+            account: nil,
+            codexActiveSourceOverride: .liveSystem)
+        #expect(liveEnv["CODEX_HOME"] == ambientHome.path)
+
+        let firstFetcher = context.fetcher(
+            base: UsageFetcher(environment: ["CODEX_HOME": ambientHome.path]),
+            provider: .codex,
+            env: firstEnv)
+        #expect(Self.codexHomePath(from: firstFetcher) == firstHome.path)
+
+        let nonCodexBaseFetcher = UsageFetcher(environment: ["CODEX_HOME": ambientHome.path])
+        let nonCodexFetcher = context.fetcher(base: nonCodexBaseFetcher, provider: .claude, env: firstEnv)
+        #expect(Self.codexHomePath(from: nonCodexFetcher) == ambientHome.path)
+
+        let labeled = try context.applyCodexVisibleAccountLabel(
+            UsageSnapshot(primary: nil, secondary: nil, updatedAt: Date()),
+            account: #require(projection.visibleAccounts.first))
+        let identity = try #require(labeled.identity(for: .codex))
+        #expect(identity.accountEmail == "first@example.com")
+        #expect(identity.accountOrganization == "Team")
     }
 
     @Test
@@ -673,8 +803,10 @@ struct TokenAccountEnvironmentPrecedenceTests {
             #expect(Self.knownOwnerMultiset(appOwners) == Self.knownOwnerMultiset(cliOwners))
         }
     }
+}
 
-    private static func makeSettingsStore(suite: String) -> SettingsStore {
+extension TokenAccountEnvironmentPrecedenceTests {
+    fileprivate static func makeSettingsStore(suite: String) -> SettingsStore {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let configStore = testConfigStore(suiteName: suite)
@@ -699,14 +831,14 @@ struct TokenAccountEnvironmentPrecedenceTests {
             tokenAccountStore: InMemoryTokenAccountStore())
     }
 
-    private static func makeUsageStore(settings: SettingsStore) -> UsageStore {
+    fileprivate static func makeUsageStore(settings: SettingsStore) -> UsageStore {
         UsageStore(
             fetcher: UsageFetcher(environment: [:]),
             browserDetection: BrowserDetection(cacheTTL: 0),
             settings: settings)
     }
 
-    private static func codexCLIKnownOwners(
+    fileprivate static func codexCLIKnownOwners(
         ambientHome: URL,
         managedStoreURL: URL) throws -> [CodexDashboardKnownOwnerCandidate]?
     {
@@ -719,7 +851,16 @@ struct TokenAccountEnvironmentPrecedenceTests {
         return context.settingsSnapshot(for: .codex, account: nil)?.codex?.dashboardAuthorityKnownOwners
     }
 
-    private static func knownOwnerMultiset(
+    fileprivate static func codexHomePath(from fetcher: UsageFetcher) -> String? {
+        guard let environment = Mirror(reflecting: fetcher).children.first(where: { $0.label == "environment" })?
+            .value as? [String: String]
+        else {
+            return nil
+        }
+        return environment["CODEX_HOME"]
+    }
+
+    fileprivate static func knownOwnerMultiset(
         _ owners: [CodexDashboardKnownOwnerCandidate]) -> [CodexDashboardKnownOwnerCandidate: Int]
     {
         owners.reduce(into: [:]) { counts, owner in
@@ -727,7 +868,7 @@ struct TokenAccountEnvironmentPrecedenceTests {
         }
     }
 
-    private static func makeTempCodexHome(email: String, plan: String, accountId: String) -> URL {
+    fileprivate static func makeTempCodexHome(email: String, plan: String, accountId: String) -> URL {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-known-owner-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
@@ -741,7 +882,7 @@ struct TokenAccountEnvironmentPrecedenceTests {
         return home
     }
 
-    private static func fakeJWT(email: String, plan: String, accountId: String) -> String {
+    fileprivate static func fakeJWT(email: String, plan: String, accountId: String) -> String {
         let header = (try? JSONSerialization.data(withJSONObject: ["alg": "none"])) ?? Data()
         let payload = (try? JSONSerialization.data(withJSONObject: [
             "email": email,
@@ -762,7 +903,7 @@ struct TokenAccountEnvironmentPrecedenceTests {
         return "\(base64URL(header)).\(base64URL(payload))."
     }
 
-    private static func withCLIKnownOwnerFixtures<T>(
+    fileprivate static func withCLIKnownOwnerFixtures<T>(
         ambientHome: URL,
         managedAccounts: [ManagedCodexAccount],
         operation: (URL) throws -> T) throws -> T
@@ -781,7 +922,7 @@ struct TokenAccountEnvironmentPrecedenceTests {
         return try operation(managedStoreURL)
     }
 
-    private static func makeSnapshotWithAllFields(provider: UsageProvider) -> UsageSnapshot {
+    fileprivate static func makeSnapshotWithAllFields(provider: UsageProvider) -> UsageSnapshot {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let reset = Date(timeIntervalSince1970: 1_700_003_600)
         let tokenLimit = ZaiLimitEntry(
@@ -833,11 +974,13 @@ struct TokenAccountEnvironmentPrecedenceTests {
                 rateLimit: nil,
                 updatedAt: now),
             cursorRequests: CursorRequestUsage(used: 7, limit: 70),
+            subscriptionExpiresAt: reset.addingTimeInterval(86400),
+            subscriptionRenewsAt: reset.addingTimeInterval(43200),
             updatedAt: now,
             identity: identity)
     }
 
-    private static func expectSnapshotFieldsPreserved(before: UsageSnapshot, after: UsageSnapshot) {
+    fileprivate static func expectSnapshotFieldsPreserved(before: UsageSnapshot, after: UsageSnapshot) {
         #expect(after.primary?.usedPercent == before.primary?.usedPercent)
         #expect(after.secondary?.usedPercent == before.secondary?.usedPercent)
         #expect(after.tertiary?.usedPercent == before.tertiary?.usedPercent)
@@ -852,6 +995,8 @@ struct TokenAccountEnvironmentPrecedenceTests {
         #expect(after.openRouterUsage?.rateLimit?.requests == before.openRouterUsage?.rateLimit?.requests)
         #expect(after.cursorRequests?.used == before.cursorRequests?.used)
         #expect(after.cursorRequests?.limit == before.cursorRequests?.limit)
+        #expect(after.subscriptionExpiresAt == before.subscriptionExpiresAt)
+        #expect(after.subscriptionRenewsAt == before.subscriptionRenewsAt)
         #expect(after.updatedAt == before.updatedAt)
     }
 }

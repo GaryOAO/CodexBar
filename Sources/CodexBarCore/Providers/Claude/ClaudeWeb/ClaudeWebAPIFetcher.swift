@@ -69,7 +69,7 @@ public enum ClaudeWebAPIFetcher {
             case .invalidResponse:
                 "Invalid response from Claude API."
             case .unauthorized:
-                "Unauthorized. Your Claude session may have expired."
+                "Sign in to claude.ai (or refresh Claude cookies) to load usage data."
             case let .serverError(code):
                 "Claude API error: HTTP \(code)"
             case .noOrganization:
@@ -292,7 +292,7 @@ public enum ClaudeWebAPIFetcher {
             request.timeoutInterval = 20
 
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await ProviderHTTPClient.shared.data(for: request)
                 let http = response as? HTTPURLResponse
                 let contentType = http?.allHeaderFields["Content-Type"] as? String
                 let truncated = data.prefix(Self.maxProbeBytes)
@@ -428,7 +428,7 @@ public enum ClaudeWebAPIFetcher {
         request.httpMethod = "GET"
         request.timeoutInterval = 15
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await ProviderHTTPClient.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw FetchError.invalidResponse
@@ -458,7 +458,7 @@ public enum ClaudeWebAPIFetcher {
         request.httpMethod = "GET"
         request.timeoutInterval = 15
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await ProviderHTTPClient.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw FetchError.invalidResponse
@@ -515,9 +515,6 @@ public enum ClaudeWebAPIFetcher {
             opusPercent = Self.percentValue(from: sevenDayOpus["utilization"])
         }
         let extraRateParse = ClaudeWebExtraRateWindowParser.parse(from: json)
-        if let sourceKey = extraRateParse.sourceKeys["claude-design"] {
-            logger?("Usage API extra window key matched: design=\(sourceKey)")
-        }
         if let sourceKey = extraRateParse.sourceKeys["claude-routines"] {
             logger?("Usage API extra window key matched: routines=\(sourceKey)")
         }
@@ -662,7 +659,7 @@ public enum ClaudeWebAPIFetcher {
         request.timeoutInterval = 15
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await ProviderHTTPClient.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else { return nil }
             logger?("Account API status: \(httpResponse.statusCode)")
             guard httpResponse.statusCode == 200 else { return nil }
@@ -921,7 +918,7 @@ private enum ClaudeWebExtraUsageCost {
         request.timeoutInterval = 15
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await ProviderHTTPClient.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else { return nil }
             logger?("Overage API status: \(httpResponse.statusCode)")
             guard httpResponse.statusCode == 200 else { return nil }
@@ -957,7 +954,7 @@ private enum ClaudeWebExtraUsageCost {
             used: usedAmount,
             limit: limitAmount,
             currencyCode: currencyCode,
-            period: "Monthly",
+            period: "Monthly cap",
             resetsAt: nil,
             updatedAt: Date())
     }

@@ -5,15 +5,18 @@ import SweetCookieKit
 public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case codex
     case openai
+    case azureopenai
     case claude
     case cursor
     case opencode
     case opencodego
     case alibaba
+    case alibabatokenplan
     case factory
     case gemini
     case antigravity
     case copilot
+    case devin
     case zai
     case minimax
     case manus
@@ -26,6 +29,7 @@ public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case kimik2
     case moonshot
     case amp
+    case t3chat
     case ollama
     case synthetic
     case warp
@@ -45,11 +49,14 @@ public enum UsageProvider: String, CaseIterable, Sendable, Codable {
     case stepfun
     case bedrock
     case grok
+    case groq
+    case llmproxy
+    case deepgram
 }
 
 // swiftformat:enable sortDeclarations
 
-public enum IconStyle: Sendable, CaseIterable {
+public enum IconStyle: String, Sendable, CaseIterable {
     case codex
     case openai
     case claude
@@ -64,6 +71,7 @@ public enum IconStyle: Sendable, CaseIterable {
     case alibaba
     case factory
     case copilot
+    case devin
     case kimi
     case kimik2
     case kilo
@@ -73,6 +81,7 @@ public enum IconStyle: Sendable, CaseIterable {
     case jetbrains
     case moonshot
     case amp
+    case t3chat
     case ollama
     case synthetic
     case warp
@@ -92,6 +101,9 @@ public enum IconStyle: Sendable, CaseIterable {
     case stepfun
     case bedrock
     case grok
+    case groq
+    case llmproxy
+    case deepgram
     case combined
 }
 
@@ -196,6 +208,46 @@ public enum ProviderBrowserCookieDefaults {
         #if os(macOS)
         let preferredPrefix: [Browser] = [.safari, .chrome, .firefox]
         return preferredPrefix + Browser.defaultImportOrder.filter { !preferredPrefix.contains($0) }
+        #else
+        nil
+        #endif
+    }
+
+    /// Grok is normally signed in through Chrome; keep this narrow so CLI/live probes do not touch
+    /// unrelated browser keychains.
+    public static var grokCookieImportOrder: BrowserCookieImportOrder? {
+        #if os(macOS)
+        [.chrome]
+        #else
+        nil
+        #endif
+    }
+
+    /// MiMo Auto: Safari first (no Keychain prompt), keep the existing Chrome-family
+    /// entries from main, and add Firefox/Edge per #1304. Other Chromium forks stay on
+    /// Manual import to avoid scanning the full SweetCookieKit default order.
+    public static var mimoCookieImportOrder: BrowserCookieImportOrder? {
+        #if os(macOS)
+        [.safari, .chrome, .chromeBeta, .chromeCanary, .firefox, .edge]
+        #else
+        nil
+        #endif
+    }
+
+    /// Devin sessions are normally in Chrome. Keep automatic import narrow so live probes do not
+    /// touch unrelated browser keychains; users can select another browser explicitly.
+    public static var devinCookieImportOrder: BrowserCookieImportOrder? {
+        #if os(macOS)
+        [.chrome]
+        #else
+        nil
+        #endif
+    }
+
+    /// Copilot budget imports should stay Chrome-only by default to avoid prompting unrelated browsers.
+    public static var copilotCookieImportOrder: BrowserCookieImportOrder? {
+        #if os(macOS)
+        [.chrome]
         #else
         nil
         #endif

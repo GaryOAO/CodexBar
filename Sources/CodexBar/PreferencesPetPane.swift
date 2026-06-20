@@ -15,7 +15,22 @@ struct PetPane: View {
     @State private var lastWrite: String = "—"
     @State private var lastTheme: String = "—"
     @State private var lastStatus: PetStatus?
+    @State private var lastCodexStatus: PetCodexStatus?
+    @State private var lastCodexWrite: String = "—"
+    @State private var deviceState: PetDeviceState?
+    @State private var deviceStateUpdatedAt: Date?
     @State private var testStatus: String = ""
+    @State private var runtimeDetail: String = "—"
+    @State private var bleRuntimeDetail: String = "—"
+    @State private var bleAuthorization: String = "—"
+
+    // Display config UI state. Seeded from the pet on appear (if connected),
+    // otherwise defaults to English / Overview / both providers.
+    @State private var displayLocale: PetDisplayConfig.Locale = .english
+    @State private var displayDefaultLayout: PetDisplayConfig.Layout = .overview
+    @State private var displayHideCodex: Bool = false
+    @State private var displayCompact: Bool = false
+    @State private var displayConfigSentAt: Date?
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
@@ -85,6 +100,36 @@ struct PetPane: View {
                             Spacer()
                         }
 
+                        HStack(spacing: 8) {
+                            Button("授权 / 重新连接蓝牙") {
+                                self.requestForegroundBluetoothStart()
+                            }
+                            .disabled(!self.settings.petEnabled)
+
+                            Button("打开系统蓝牙权限") {
+                                self.openBluetoothPrivacy()
+                            }
+                            .disabled(!self.settings.petEnabled)
+
+                            Button("显示 App") {
+                                self.revealCodexBarApp()
+                            }
+                            .disabled(!self.settings.petEnabled)
+
+                            Button("复制路径") {
+                                self.copyCodexBarAppPath()
+                            }
+                            .disabled(!self.settings.petEnabled)
+
+                            Text(
+                                "ClawdPet 通常不会出现在系统蓝牙设备列表；这里显示“已连接”才是准确信号。"
+                                    + "若系统没有弹出权限，请允许 CodexBar 或 CodexBar BLE Helper 使用蓝牙。")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                            Spacer()
+                        }
+                        .controlSize(.small)
+
                         VStack(alignment: .leading, spacing: 8) {
                             Text("实时详情")
                                 .font(.caption)
@@ -103,6 +148,24 @@ struct PetPane: View {
                                 self.detailCell("信号", self.lastRSSI)
                                 self.detailCell("最后推送", self.lastWrite)
                                 self.detailCell("主题", self.lastTheme)
+                                self.detailCell("授权", self.bleAuthorization)
+                                self.detailCell("运行时", self.runtimeDetail)
+                                self.detailCell("蓝牙", self.bleRuntimeDetail)
+                            }
+
+                            self.deviceStateSection(self.deviceState, updatedAt: self.deviceStateUpdatedAt)
+
+                            Divider()
+                                .opacity(0.5)
+
+                            LazyVGrid(
+                                columns: [
+                                    GridItem(.flexible(), alignment: .leading),
+                                    GridItem(.flexible(), alignment: .leading),
+                                ],
+                                alignment: .leading,
+                                spacing: 8)
+                            {
                                 if let status = self.lastStatus {
                                     self.detailCell("模式", self.modeLabel(status.mode))
                                     self.detailCell(
@@ -114,10 +177,14 @@ struct PetPane: View {
                                     self.detailCell("今日 Token", self.formatTokens(status.todayTokens))
                                     self.detailCell("5h 重置", self.formatReset(status.reset5hMinutes))
                                     self.detailCell("周重置", self.formatReset(status.resetWeekMinutes))
-                                    self.detailCell("Flags", self.formatFlags(status.flags))
-                                    self.detailCell("Payload", self.payloadSummary(status))
+                                    self.detailCell("同步标记", self.formatFlags(status.flags))
+                                    self.detailCell("同步载荷", self.payloadSummary(status))
+                                    if let codex = self.lastCodexStatus {
+                                        self.detailCell("Codex 今日", self.formatTokens(codex.todayTokens))
+                                        self.detailCell("Codex 推送", self.lastCodexWrite)
+                                    }
                                 } else {
-                                    self.detailCell("Payload", "还没有推送过状态")
+                                    self.detailCell("同步载荷", "还没有推送过状态")
                                 }
                             }
                         }
@@ -132,9 +199,10 @@ struct PetPane: View {
                                 .textCase(.uppercase)
                             HStack(spacing: 8) {
                                 Button("Clawd") { self.sendTheme(.clawd) }
-                                Button("Calico") { self.sendTheme(.calico) }
-                                Button("Cloud") { self.sendTheme(.cloudling) }
-                                Button("Tank") { self.sendTheme(.tank) }
+                                Text("RLCD 固定使用同一套 Clawd 身份；旧主题值会在固件端归一化。")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                                Spacer()
                             }
                             .controlSize(.small)
 
@@ -230,6 +298,62 @@ struct PetPane: View {
                                 .foregroundStyle(.tertiary)
                         }
                     }
+
+                // ── Display config: pushed to the pet over BLE ffe6 and
+                // persisted in NVS so the pet remembers user preference
+                // across reboots. Adding more knobs later means extending
+                // PetDisplayConfig + this section.
+                SettingsSection(
+                    title: "屏幕显示（Pet Display）",
+                    caption: """
+                    选择桌宠屏幕上的标签语言、开机默认页面，以及是否隐藏 Codex 列。\
+                    设置写入桌宠后会持久保存到设备 NVS，断电不丢失。
+                    """) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("标签语言")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textCase(.uppercase)
+                            Picker("标签语言", selection: self.$displayLocale) {
+                                ForEach(PetDisplayConfig.Locale.allCases, id: \.self) { loc in
+                                    Text(loc.displayName).tag(loc)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+
+                            Text("默认页面")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textCase(.uppercase)
+                            Picker("默认页面", selection: self.$displayDefaultLayout) {
+                                ForEach(PetDisplayConfig.Layout.allCases, id: \.self) { l in
+                                    Text(l.displayName).tag(l)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+
+                            Toggle(
+                                "隐藏 Codex 列（单 provider 模式）",
+                                isOn: self.$displayHideCodex)
+                            Toggle(
+                                "紧凑模式（更小的字 / 间距）",
+                                isOn: self.$displayCompact)
+
+                            HStack {
+                                Button("应用到桌宠") { self.applyDisplayConfig() }
+                                    .keyboardShortcut(.defaultAction)
+                                Spacer()
+                                if let sent = self.displayConfigSentAt {
+                                    Text("已应用：\(self.relativeTime(sent))")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                        .disabled(!self.settings.petEnabled)
+                    }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
@@ -237,6 +361,7 @@ struct PetPane: View {
         }
         .onAppear {
             self.refreshState()
+            self.seedDisplayConfigFromPet()
         }
         .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
             self.refreshState()
@@ -248,10 +373,23 @@ struct PetPane: View {
         case "disabled": "未启用"
         case "starting": "启动中"
         case "off": "关闭"
+        case "authorizing": "等待系统授权"
+        case "permissionRequired": "需要蓝牙授权"
         case "scanning": "扫描中"
         case "connecting": "连接中"
         case "ready": "已连接"
         default: self.bleState
+        }
+    }
+
+    private var localizedBleAuthorization: String {
+        let raw = UserDefaults.standard.object(forKey: "petBleAuthorization") as? Int
+        return switch raw {
+        case 0: "未决定"
+        case 1: "受限制"
+        case 2: "已拒绝"
+        case 3: "已允许"
+        default: "—"
         }
     }
 
@@ -279,6 +417,46 @@ struct PetPane: View {
             Text(value)
                 .font(.caption)
                 .lineLimit(2)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func deviceStateSection(_ state: PetDeviceState?, updatedAt: Date?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .foregroundStyle(.secondary)
+                Text("板端状态")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+            }
+
+            if let state {
+                self.deviceStateRow("房间", self.formatRoom(state))
+                self.deviceStateRow("供电", self.formatPower(state))
+                self.deviceStateRow("Clawd 状态", self.formatClawdState(state))
+                self.deviceStateRow("更新时间", self.formatDeviceStateUpdatedAt(updatedAt))
+            } else {
+                Text("等待桌宠上报真实状态")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func deviceStateRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(width: 70, alignment: .leading)
+            Text(value)
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -347,13 +525,111 @@ struct PetPane: View {
         status.encoded().map { String(format: "%02X", $0) }.joined(separator: " ")
     }
 
-    private func sendTheme(_ theme: PetBLEClient.Theme) {
-        PetSharedAccess.client?.setTheme(theme)
+    private func formatRoom(_ state: PetDeviceState) -> String {
+        let temp = state.temperatureCelsius.map { String(format: "%.1f°C", $0) } ?? "温度未知"
+        let humidity = state.humidityPct.map { "湿度 \($0)%" } ?? "湿度未知"
+        return "\(temp) · \(humidity)"
+    }
+
+    private func formatPower(_ state: PetDeviceState) -> String {
+        let battery = state.batteryPct.map { "电量 \($0)%" } ?? "电量未知"
+        let voltage = state.batteryVolts.map { String(format: "%.2f V", $0) } ?? "电压未知"
+        return "\(battery) · \(voltage)"
+    }
+
+    private func formatClawdState(_ state: PetDeviceState) -> String {
+        [
+            "Lv \(state.petLevel)",
+            "饥饿 \(state.hunger)",
+            "快乐 \(state.happiness)",
+            "精力 \(state.energy)",
+            "心情 \(state.mood >= 0 ? "+\(state.mood)" : "\(state.mood)")",
+            "亲密 \(state.bond)",
+            "压力 \(state.stress)",
+            self.formatSleepFlags(state),
+            "运行 \(self.formatUptime(state.uptimeSeconds))",
+        ].joined(separator: " · ")
+    }
+
+    private func formatSleepFlags(_ state: PetDeviceState) -> String {
+        var parts: [String] = []
+        if state.isLocalQuiet { parts.append("安静中") }
+        if state.isSoftPowerOff { parts.append("软关机") }
+        if state.isPanelSleepActive { parts.append("面板睡眠") }
+        return parts.isEmpty ? "清醒" : parts.joined(separator: "、")
+    }
+
+    private func formatUptime(_ seconds: UInt16) -> String {
+        if seconds < 60 { return "\(seconds) 秒" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes) 分 \(seconds % 60) 秒" }
+        let hours = minutes / 60
+        let mins = minutes % 60
+        return mins == 0 ? "\(hours) 小时" : "\(hours) 小时 \(mins) 分"
+    }
+
+    private func formatDeviceStateUpdatedAt(_ updatedAt: Date?) -> String {
+        updatedAt.map { Self.relativeTimeFormatter.localizedString(for: $0, relativeTo: Date()) } ?? "—"
+    }
+
+    private func sendTheme(_ theme: PetTheme) {
+        PetSharedAccess.setTheme(theme)
         self.testStatus = "已发送主题：\(theme)"
     }
 
+    /// Seed the display-config UI from whatever the pet last persisted to
+    /// NVS (read on connect via PetBLEClient.lastDisplayConfig). Falls back
+    /// to defaults when the pet hasn't been seen yet.
+    private func seedDisplayConfigFromPet() {
+        guard let cfg = PetSharedAccess.snapshot()?.lastDisplayConfig else { return }
+        self.displayLocale = cfg.locale
+        self.displayDefaultLayout = cfg.defaultLayout
+        self.displayHideCodex = cfg.hideCodex
+        self.displayCompact = cfg.compactMode
+    }
+
+    /// Bundle the UI state into a PetDisplayConfig and push to the pet
+    /// (BLE characteristic ffe6). The pet validates + persists to NVS so
+    /// the choice survives a reboot.
+    private func applyDisplayConfig() {
+        let cfg = PetDisplayConfig(
+            locale: self.displayLocale,
+            defaultLayout: self.displayDefaultLayout,
+            hideCodex: self.displayHideCodex,
+            compactMode: self.displayCompact)
+        PetSharedAccess.setDisplayConfig(cfg)
+        self.displayConfigSentAt = Date()
+        self.testStatus = "已应用显示设置"
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        Self.relativeTimeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func requestForegroundBluetoothStart() {
+        NSApp.activate(ignoringOtherApps: true)
+        PetSharedAccess.requestForegroundStart?()
+        self.testStatus = "已请求前台蓝牙授权 / 重新连接"
+        self.refreshState()
+    }
+
+    private func openBluetoothPrivacy() {
+        SystemSettingsLinks.openBluetoothPrivacy()
+        self.testStatus = "已打开系统蓝牙权限设置；允许 CodexBar 后请点击重新连接"
+    }
+
+    private func revealCodexBarApp() {
+        SystemSettingsLinks.revealInstalledCodexBarApp()
+        self.testStatus = "已在 Finder 中定位 CodexBar.app"
+    }
+
+    private func copyCodexBarAppPath() {
+        SystemSettingsLinks.copyInstalledCodexBarAppPath()
+        self.testStatus = "已复制 /Applications/CodexBar.app"
+    }
+
     private func sendTestPulse() {
-        guard let client = PetSharedAccess.client else {
+        guard PetSharedAccess.client != nil || PetSharedAccess.helper != nil else {
             self.testStatus = "桌宠客户端尚未启动"
             return
         }
@@ -366,12 +642,12 @@ struct PetPane: View {
             presentation: self.presentationByte(),
             todayTokens: 125_000,
             epochSeconds: UInt32(Date().timeIntervalSince1970))
-        client.pushStatus(status)
+        PetSharedAccess.pushStatus(status)
         self.testStatus = "测试脉冲已发送"
     }
 
     private func sendDisconnectedTest() {
-        guard let client = PetSharedAccess.client else {
+        guard PetSharedAccess.client != nil || PetSharedAccess.helper != nil else {
             self.testStatus = "桌宠客户端尚未启动"
             return
         }
@@ -384,12 +660,12 @@ struct PetPane: View {
             presentation: self.presentationByte(),
             todayTokens: 0,
             epochSeconds: UInt32(Date().timeIntervalSince1970))
-        client.pushStatus(status)
+        PetSharedAccess.pushStatus(status)
         self.testStatus = "断开状态已发送"
     }
 
     private func sendMilestoneTest() {
-        guard let client = PetSharedAccess.client else {
+        guard PetSharedAccess.client != nil || PetSharedAccess.helper != nil else {
             self.testStatus = "桌宠客户端尚未启动"
             return
         }
@@ -402,12 +678,12 @@ struct PetPane: View {
             presentation: self.presentationByte(),
             todayTokens: 1_000_000_000,
             epochSeconds: UInt32(Date().timeIntervalSince1970))
-        client.pushStatus(status)
+        PetSharedAccess.pushStatus(status)
         self.testStatus = "1B 里程碑已发送"
     }
 
     private func sendOverheatedTest() {
-        guard let client = PetSharedAccess.client else {
+        guard PetSharedAccess.client != nil || PetSharedAccess.helper != nil else {
             self.testStatus = "桌宠客户端尚未启动"
             return
         }
@@ -420,7 +696,7 @@ struct PetPane: View {
             presentation: self.presentationByte(),
             todayTokens: 0,
             epochSeconds: UInt32(Date().timeIntervalSince1970))
-        client.pushStatus(status)
+        PetSharedAccess.pushStatus(status)
         self.testStatus = "过热状态已发送"
     }
 
@@ -434,6 +710,39 @@ struct PetPane: View {
             self.firmware = "—"
             self.peripheralName = "—"
             self.lastRSSI = "—"
+            self.lastStatus = nil
+            self.lastCodexStatus = nil
+            self.lastCodexWrite = "—"
+            self.deviceState = nil
+            self.deviceStateUpdatedAt = nil
+            self.runtimeDetail = "已禁用"
+            self.bleRuntimeDetail = "—"
+            self.bleAuthorization = "—"
+            return
+        }
+        if let snapshot = PetSharedAccess.snapshot() {
+            self.bleState = snapshot.state
+            self.firmware = snapshot.firmwareInfo ?? "—"
+            self.peripheralName = snapshot.peripheralName ?? "—"
+            self.lastRSSI = snapshot.rssi.map { "\($0) dBm" } ?? "—"
+            self.lastStatus = snapshot.lastStatus
+            self.lastCodexStatus = snapshot.lastCodexStatus
+            self.lastCodexWrite = snapshot.lastCodexStatusSentAt.map {
+                Self.relativeTimeFormatter.localizedString(
+                    for: Date(timeIntervalSince1970: $0),
+                    relativeTo: Date())
+            } ?? "—"
+            self.deviceState = snapshot.deviceState
+            self.deviceStateUpdatedAt = snapshot.deviceStateUpdatedAt.map(Date.init(timeIntervalSince1970:))
+            self.lastWrite = snapshot.lastStatusSentAt.map {
+                Self.relativeTimeFormatter.localizedString(
+                    for: Date(timeIntervalSince1970: $0),
+                    relativeTo: Date())
+            } ?? "—"
+            self.lastTheme = snapshot.lastTheme.map { "\($0)" } ?? "—"
+            self.runtimeDetail = UserDefaults.standard.string(forKey: "petRuntimeDetail") ?? "—"
+            self.bleRuntimeDetail = snapshot.runtimeDetail
+            self.bleAuthorization = self.authorizationLabel(snapshot.authorizationRawValue)
             return
         }
         guard let client = PetSharedAccess.client else {
@@ -441,6 +750,14 @@ struct PetPane: View {
             self.firmware = "—"
             self.peripheralName = "—"
             self.lastRSSI = "—"
+            self.lastStatus = nil
+            self.lastCodexStatus = nil
+            self.lastCodexWrite = "—"
+            self.deviceState = nil
+            self.deviceStateUpdatedAt = nil
+            self.runtimeDetail = UserDefaults.standard.string(forKey: "petRuntimeDetail") ?? "启动中"
+            self.bleRuntimeDetail = UserDefaults.standard.string(forKey: "petBleRuntimeDetail") ?? "—"
+            self.bleAuthorization = self.localizedBleAuthorization
             return
         }
         self.bleState = String(describing: client.state)
@@ -448,10 +765,29 @@ struct PetPane: View {
         self.peripheralName = client.peripheralName ?? "—"
         self.lastRSSI = client.lastRSSI.map { "\($0) dBm" } ?? "—"
         self.lastStatus = client.lastStatus
+        self.lastCodexStatus = client.lastCodexStatus
+        self.lastCodexWrite = client.lastCodexStatusSentAt.map { Self.relativeTimeFormatter.localizedString(
+            for: $0,
+            relativeTo: Date()) } ?? "—"
+        self.deviceState = client.deviceState
+        self.deviceStateUpdatedAt = client.deviceStateUpdatedAt
         self.lastWrite = client.lastStatusSentAt.map { Self.relativeTimeFormatter.localizedString(
             for: $0,
             relativeTo: Date()) } ?? "—"
         self.lastTheme = client.lastTheme.map { "\($0)" } ?? "—"
+        self.runtimeDetail = UserDefaults.standard.string(forKey: "petRuntimeDetail") ?? "—"
+        self.bleRuntimeDetail = UserDefaults.standard.string(forKey: "petBleRuntimeDetail") ?? "—"
+        self.bleAuthorization = self.localizedBleAuthorization
+    }
+
+    private func authorizationLabel(_ raw: Int) -> String {
+        switch raw {
+        case 0: "未决定"
+        case 1: "受限制"
+        case 2: "已拒绝"
+        case 3: "已允许"
+        default: "—"
+        }
     }
 
     private static let relativeTimeFormatter: RelativeDateTimeFormatter = {

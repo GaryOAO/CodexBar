@@ -5,8 +5,20 @@ import SwiftUI
 enum AppLanguage: String, CaseIterable, Identifiable {
     case system = ""
     case english = "en"
+    case german = "de"
+    case spanish = "es"
+    case catalan = "ca"
     case chineseSimplified = "zh-Hans"
+    case chineseTraditional = "zh-Hant"
     case portugueseBrazilian = "pt-BR"
+    case swedish = "sv"
+    case french = "fr"
+    case dutch = "nl"
+    case ukrainian = "uk"
+    case vietnamese = "vi"
+    case japanese = "ja"
+    case korean = "ko"
+    case turkish = "tr"
 
     var id: String {
         self.rawValue
@@ -16,8 +28,20 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         switch self {
         case .system: L("language_system")
         case .english: L("language_english")
+        case .german: L("language_german")
+        case .spanish: L("language_spanish")
+        case .catalan: L("language_catalan")
         case .chineseSimplified: L("language_chinese_simplified")
+        case .chineseTraditional: L("language_chinese_traditional")
         case .portugueseBrazilian: L("language_portuguese_brazilian")
+        case .swedish: L("language_swedish")
+        case .french: L("language_french")
+        case .dutch: L("language_dutch")
+        case .ukrainian: L("language_ukrainian")
+        case .vietnamese: L("language_vietnamese")
+        case .japanese: L("language_japanese")
+        case .korean: L("language_korean")
+        case .turkish: L("language_turkish")
         }
     }
 }
@@ -58,6 +82,26 @@ struct GeneralPane: View {
                         }
                     }
 
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L("terminal_app_title"))
+                                .font(.body)
+                            Text(L("terminal_app_subtitle"))
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer()
+                        Picker(L("terminal_app_title"), selection: self.$settings.terminalApp) {
+                            ForEach(TerminalApp.allCases) { option in
+                                Text(option.label).tag(option)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 200)
+                    }
+
                     PreferenceToggleRow(
                         title: L("start_at_login_title"),
                         subtitle: L("start_at_login_subtitle"),
@@ -86,6 +130,17 @@ struct GeneralPane: View {
                                 .fixedSize(horizontal: false, vertical: true)
 
                             if self.settings.costUsageEnabled {
+                                Stepper(
+                                    value: self.$settings.costUsageHistoryDays,
+                                    in: 1...365,
+                                    step: 1)
+                                {
+                                    Text(String(
+                                        format: L("cost_history_days_title"),
+                                        self.settings.costUsageHistoryDays))
+                                        .font(.footnote)
+                                }
+
                                 Text(L("cost_auto_refresh_info"))
                                     .font(.footnote)
                                     .foregroundStyle(.tertiary)
@@ -114,7 +169,7 @@ struct GeneralPane: View {
                                     .foregroundStyle(.tertiary)
                             }
                             Spacer()
-                            Picker("Refresh cadence", selection: self.$settings.refreshFrequency) {
+                            Picker(L("Refresh cadence"), selection: self.$settings.refreshFrequency) {
                                 ForEach(RefreshFrequency.allCases) { option in
                                     Text(option.label).tag(option)
                                 }
@@ -187,8 +242,10 @@ struct GeneralPane: View {
         }
         if let snapshot = self.store.tokenSnapshot(for: provider) {
             let updated = UsageFormatter.updatedString(from: snapshot.updatedAt)
-            let cost = snapshot.last30DaysCostUSD.map { UsageFormatter.usdString($0) } ?? "—"
-            return Text(String(format: L("cost_status_snapshot"), name, updated, cost))
+            let cost = snapshot.last30DaysCostUSD
+                .map { UsageFormatter.currencyString($0, currencyCode: snapshot.currencyCode) } ?? "—"
+            let window = snapshot.historyLabel ?? (snapshot.historyDays == 1 ? "today" : "\(snapshot.historyDays)d")
+            return Text(String(format: L("cost_status_snapshot"), name, updated, window, cost))
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
         }

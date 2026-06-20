@@ -36,7 +36,7 @@ public enum ClaudeAdminAPIUsageFetcher {
         apiKey: String,
         costURL: URL = Self.costReportURL,
         messagesURL: URL = Self.messagesUsageURL,
-        session: URLSession = .shared,
+        session transport: any ProviderHTTPTransport = ProviderHTTPClient.shared,
         now: Date = Date()) async throws -> ClaudeAdminAPIUsageSnapshot
     {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -50,12 +50,12 @@ public enum ClaudeAdminAPIUsageFetcher {
             apiKey: trimmed,
             baseURL: costURL,
             range: range,
-            session: session)
+            transport: transport)
         let messages = try await Self.fetchMessagesUsage(
             apiKey: trimmed,
             baseURL: messagesURL,
             range: range,
-            session: session)
+            transport: transport)
 
         return Self.makeSnapshot(costs: costs, messages: messages, now: now, calendar: calendar)
     }
@@ -75,7 +75,7 @@ public enum ClaudeAdminAPIUsageFetcher {
         apiKey: String,
         baseURL: URL,
         range: DateRange,
-        session: URLSession) async throws -> CostReportResponse
+        transport: any ProviderHTTPTransport) async throws -> CostReportResponse
     {
         let url = Self.url(
             baseURL: baseURL,
@@ -83,7 +83,7 @@ public enum ClaudeAdminAPIUsageFetcher {
             queryItems: [
                 URLQueryItem(name: "group_by[]", value: "description"),
             ])
-        let data = try await Self.fetchData(url: url, apiKey: apiKey, endpoint: "cost_report", session: session)
+        let data = try await Self.fetchData(url: url, apiKey: apiKey, endpoint: "cost_report", transport: transport)
         return try Self.decodeCosts(data)
     }
 
@@ -91,7 +91,7 @@ public enum ClaudeAdminAPIUsageFetcher {
         apiKey: String,
         baseURL: URL,
         range: DateRange,
-        session: URLSession) async throws -> MessagesUsageResponse
+        transport: any ProviderHTTPTransport) async throws -> MessagesUsageResponse
     {
         let url = Self.url(
             baseURL: baseURL,
@@ -99,7 +99,7 @@ public enum ClaudeAdminAPIUsageFetcher {
             queryItems: [
                 URLQueryItem(name: "group_by[]", value: "model"),
             ])
-        let data = try await Self.fetchData(url: url, apiKey: apiKey, endpoint: "messages", session: session)
+        let data = try await Self.fetchData(url: url, apiKey: apiKey, endpoint: "messages", transport: transport)
         return try Self.decodeMessages(data)
     }
 
@@ -107,7 +107,7 @@ public enum ClaudeAdminAPIUsageFetcher {
         url: URL,
         apiKey: String,
         endpoint: String,
-        session: URLSession) async throws -> Data
+        transport: any ProviderHTTPTransport) async throws -> Data
     {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -117,21 +117,17 @@ public enum ClaudeAdminAPIUsageFetcher {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("CodexBar/1.0", forHTTPHeaderField: "User-Agent")
 
-        let data: Data
-        let response: URLResponse
+        let response: ProviderHTTPResponse
         do {
-            (data, response) = try await session.data(for: request)
+            response = try await transport.response(for: request)
         } catch {
             throw ClaudeAdminAPIUsageError.networkError(error.localizedDescription)
         }
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ClaudeAdminAPIUsageError.networkError("Invalid response")
+        guard response.statusCode == 200 else {
+            throw ClaudeAdminAPIUsageError.apiError(endpoint: endpoint, statusCode: response.statusCode)
         }
-        guard httpResponse.statusCode == 200 else {
-            throw ClaudeAdminAPIUsageError.apiError(endpoint: endpoint, statusCode: httpResponse.statusCode)
-        }
-        return data
+        return response.data
     }
 
     private static func decodeCosts(_ data: Data) throws -> CostReportResponse {

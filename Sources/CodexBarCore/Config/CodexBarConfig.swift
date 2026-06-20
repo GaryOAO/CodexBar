@@ -89,6 +89,8 @@ public struct ProviderConfig: Codable, Sendable, Identifiable {
     public var quotaWarnings: QuotaWarningConfig?
     public var kiloKnownOrganizations: [KiloOrganization]?
     public var kiloEnabledOrganizationIDs: [String]?
+    public var awsProfile: String?
+    public var awsAuthMode: String?
 
     public init(
         id: UsageProvider,
@@ -106,7 +108,9 @@ public struct ProviderConfig: Codable, Sendable, Identifiable {
         codexActiveSource: CodexActiveSource? = nil,
         quotaWarnings: QuotaWarningConfig? = nil,
         kiloKnownOrganizations: [KiloOrganization]? = nil,
-        kiloEnabledOrganizationIDs: [String]? = nil)
+        kiloEnabledOrganizationIDs: [String]? = nil,
+        awsProfile: String? = nil,
+        awsAuthMode: String? = nil)
     {
         self.id = id
         self.enabled = enabled
@@ -124,6 +128,8 @@ public struct ProviderConfig: Codable, Sendable, Identifiable {
         self.quotaWarnings = quotaWarnings
         self.kiloKnownOrganizations = kiloKnownOrganizations
         self.kiloEnabledOrganizationIDs = kiloEnabledOrganizationIDs
+        self.awsProfile = awsProfile
+        self.awsAuthMode = awsAuthMode
     }
 
     public var sanitizedAPIKey: String? {
@@ -142,8 +148,20 @@ public struct ProviderConfig: Codable, Sendable, Identifiable {
         Self.clean(self.region)
     }
 
+    public var sanitizedWorkspaceID: String? {
+        Self.clean(self.workspaceID)
+    }
+
     public var sanitizedEnterpriseHost: String? {
         Self.clean(self.enterpriseHost)
+    }
+
+    public var sanitizedAWSProfile: String? {
+        Self.clean(self.awsProfile)
+    }
+
+    public var sanitizedAWSAuthMode: String? {
+        Self.clean(self.awsAuthMode)
     }
 
     private static func clean(_ raw: String?) -> String? {
@@ -153,8 +171,7 @@ public struct ProviderConfig: Codable, Sendable, Identifiable {
         if (value.hasPrefix("\"") && value.hasSuffix("\"")) ||
             (value.hasPrefix("'") && value.hasSuffix("'"))
         {
-            value.removeFirst()
-            value.removeLast()
+            value = String(value.dropFirst().dropLast())
         }
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value

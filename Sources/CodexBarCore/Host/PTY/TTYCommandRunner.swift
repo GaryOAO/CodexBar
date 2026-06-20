@@ -6,9 +6,10 @@ import Glibc
 import Foundation
 
 private enum TTYCommandRunnerActiveProcessRegistry {
-    private static let lock = NSLock()
+    private static let condition = NSCondition()
     private nonisolated(unsafe) static var processes: [pid_t: ProcessInfo] = [:]
     private nonisolated(unsafe) static var isShuttingDown = false
+    private nonisolated(unsafe) static var launchesInProgress = 0
 
     private struct ProcessInfo {
         let binary: String
@@ -18,62 +19,144 @@ private enum TTYCommandRunnerActiveProcessRegistry {
     @discardableResult
     static func register(pid: pid_t, binary: String) -> Bool {
         guard pid > 0 else { return false }
-        self.lock.lock()
-        defer { self.lock.unlock() }
+        self.condition.lock()
+        defer { self.condition.unlock() }
         guard !self.isShuttingDown else { return false }
         self.processes[pid] = ProcessInfo(binary: binary, processGroup: nil)
         return true
     }
 
+    static func beginLaunch() -> Bool {
+        self.condition.lock()
+        defer { self.condition.unlock() }
+        guard !self.isShuttingDown else { return false }
+        self.launchesInProgress += 1
+        return true
+    }
+
+    static func endLaunch() {
+        self.condition.lock()
+        self.launchesInProgress = max(0, self.launchesInProgress - 1)
+        if self.launchesInProgress == 0 {
+            self.condition.broadcast()
+        }
+        self.condition.unlock()
+    }
+
     static func updateProcessGroup(pid: pid_t, processGroup: pid_t?) {
         guard pid > 0 else { return }
-        self.lock.lock()
+        self.condition.lock()
         guard var existing = self.processes[pid] else {
-            self.lock.unlock()
+            self.condition.unlock()
             return
         }
         existing.processGroup = processGroup
         self.processes[pid] = existing
-        self.lock.unlock()
+        self.condition.unlock()
     }
 
     static func unregister(pid: pid_t) {
         guard pid > 0 else { return }
-        self.lock.lock()
+        self.condition.lock()
         self.processes.removeValue(forKey: pid)
-        self.lock.unlock()
+        self.condition.unlock()
     }
 
-    static func drainForShutdown() -> [(pid: pid_t, binary: String, processGroup: pid_t?)] {
-        self.lock.lock()
+    static func drainForShutdown(
+        onFenceSet: (() -> Void)? = nil)
+        -> [(pid: pid_t, binary: String, processGroup: pid_t?)]
+    {
+        self.condition.lock()
         self.isShuttingDown = true
+        onFenceSet?()
+        while self.launchesInProgress > 0 {
+            self.condition.wait()
+        }
         let drained = self.processes.map {
             (pid: $0.key, binary: $0.value.binary, processGroup: $0.value.processGroup)
         }
         self.processes.removeAll()
-        self.lock.unlock()
+        self.condition.unlock()
         return drained
     }
 
     static func reset() {
-        self.lock.lock()
+        self.condition.lock()
         self.processes.removeAll()
         self.isShuttingDown = false
-        self.lock.unlock()
+        self.launchesInProgress = 0
+        self.condition.broadcast()
+        self.condition.unlock()
     }
 
     static func count() -> Int {
-        self.lock.lock()
+        self.condition.lock()
         let count = self.processes.count
-        self.lock.unlock()
+        self.condition.unlock()
         return count
     }
 
     static func testTrackProcess(pid: pid_t, binary: String, processGroup: pid_t?) {
         guard pid > 0 else { return }
-        self.lock.lock()
+        self.condition.lock()
         self.processes[pid] = ProcessInfo(binary: binary, processGroup: processGroup)
-        self.lock.unlock()
+        self.condition.unlock()
+    }
+}
+
+enum TTYProcessTreeTerminator {
+    static func descendantPIDs(
+        of rootPID: pid_t,
+        childResolver: (pid_t) -> [pid_t] = Self.currentChildPIDs(of:)) -> [pid_t]
+    {
+        guard rootPID > 0 else { return [] }
+
+        var seen: Set<pid_t> = [rootPID]
+        var pending = childResolver(rootPID)
+        var descendants: [pid_t] = []
+
+        while let pid = pending.popLast() {
+            guard pid > 0, seen.insert(pid).inserted else { continue }
+            descendants.append(pid)
+            pending.append(contentsOf: childResolver(pid))
+        }
+
+        return descendants
+    }
+
+    static func currentChildPIDs(of parentPID: pid_t) -> [pid_t] {
+        guard parentPID > 0 else { return [] }
+
+        #if canImport(Darwin)
+        var pids = [pid_t](repeating: 0, count: 128)
+        let byteCount = Int32(pids.count * MemoryLayout<pid_t>.stride)
+        let childCount = proc_listchildpids(parentPID, &pids, byteCount)
+        guard childCount > 0 else { return [] }
+        return Array(pids.prefix(min(Int(childCount), pids.count))).filter { $0 > 0 }
+        #else
+        return []
+        #endif
+    }
+
+    static func terminateProcessTree(
+        rootPID: pid_t,
+        processGroup: pid_t?,
+        signal: Int32,
+        knownDescendants: [pid_t] = [],
+        childResolver: (pid_t) -> [pid_t] = Self.currentChildPIDs(of:),
+        signalSender: (pid_t, Int32) -> Void = { kill($0, $1) })
+    {
+        guard rootPID > 0 else { return }
+
+        var seen: Set<pid_t> = [rootPID]
+        let descendants = knownDescendants + self.descendantPIDs(of: rootPID, childResolver: childResolver)
+        for pid in descendants where pid > 0 && seen.insert(pid).inserted {
+            signalSender(pid, signal)
+        }
+        if let processGroup {
+            signalSender(-processGroup, signal)
+        }
+        signalSender(rootPID, signal)
     }
 }
 
@@ -103,6 +186,7 @@ public struct TTYCommandRunner {
         public var stopOnSubstrings: [String]
         public var settleAfterStop: TimeInterval
         public var forceCodexStatusMode: Bool
+        public var useClaudeProbeWorkingDirectory: Bool
 
         public init(
             rows: UInt16 = 50,
@@ -118,7 +202,8 @@ public struct TTYCommandRunner {
             stopOnURL: Bool = false,
             stopOnSubstrings: [String] = [],
             settleAfterStop: TimeInterval = 0.25,
-            forceCodexStatusMode: Bool = false)
+            forceCodexStatusMode: Bool = false,
+            useClaudeProbeWorkingDirectory: Bool = false)
         {
             self.rows = rows
             self.cols = cols
@@ -134,6 +219,7 @@ public struct TTYCommandRunner {
             self.stopOnSubstrings = stopOnSubstrings
             self.settleAfterStop = settleAfterStop
             self.forceCodexStatusMode = forceCodexStatusMode
+            self.useClaudeProbeWorkingDirectory = useClaudeProbeWorkingDirectory
         }
     }
 
@@ -164,31 +250,18 @@ public struct TTYCommandRunner {
             groupResolver: { getpgid($0) })
 
         for target in resolvedTargets where target.pid > 0 {
-            if let pgid = target.processGroup {
-                kill(-pgid, SIGTERM)
-            }
-            kill(target.pid, SIGTERM)
+            TTYProcessTreeTerminator.terminateProcessTree(
+                rootPID: target.pid,
+                processGroup: target.processGroup,
+                signal: SIGTERM)
         }
 
         for target in resolvedTargets where target.pid > 0 {
-            if let pgid = target.processGroup {
-                kill(-pgid, SIGKILL)
-            }
-            kill(target.pid, SIGKILL)
+            TTYProcessTreeTerminator.terminateProcessTree(
+                rootPID: target.pid,
+                processGroup: target.processGroup,
+                signal: SIGKILL)
         }
-    }
-
-    @discardableResult
-    static func registerActiveProcessForAppShutdown(pid: pid_t, binary: String) -> Bool {
-        TTYCommandRunnerActiveProcessRegistry.register(pid: pid, binary: binary)
-    }
-
-    static func updateActiveProcessGroupForAppShutdown(pid: pid_t, processGroup: pid_t?) {
-        TTYCommandRunnerActiveProcessRegistry.updateProcessGroup(pid: pid, processGroup: processGroup)
-    }
-
-    static func unregisterActiveProcessForAppShutdown(pid: pid_t) {
-        TTYCommandRunnerActiveProcessRegistry.unregister(pid: pid)
     }
 
     private static func resolveShutdownTargets(
@@ -421,9 +494,11 @@ public struct TTYCommandRunner {
             }
         }
 
+        let baseEnv = options.baseEnvironment ?? ProcessInfo.processInfo.environment
         let proc = Process()
         let resolvedURL = URL(fileURLWithPath: resolved)
-        if resolvedURL.lastPathComponent == "claude",
+        let isClaudeCLI = Self.isClaudeBinary(requested: binary, resolved: resolved, environment: baseEnv)
+        if isClaudeCLI,
            let watchdog = Self.locateBundledHelper("CodexBarClaudeWatchdog")
         {
             proc.executableURL = URL(fileURLWithPath: watchdog)
@@ -437,9 +512,12 @@ public struct TTYCommandRunner {
         proc.standardError = secondaryHandle
         // Use login-shell PATH when available, but keep the caller’s environment (HOME, LANG, etc.) so
         // the CLIs can find their auth/config files.
-        let baseEnv = options.baseEnvironment ?? ProcessInfo.processInfo.environment
         var env = Self.enrichedEnvironment(baseEnv: baseEnv, home: baseEnv["HOME"] ?? NSHomeDirectory())
-        if let workingDirectory = options.workingDirectory {
+        let workingDirectory = options.workingDirectory
+            ?? (options.useClaudeProbeWorkingDirectory && isClaudeCLI
+                ? ClaudeStatusProbe.preparedProbeWorkingDirectoryURL()
+                : nil)
+        if let workingDirectory {
             proc.currentDirectoryURL = workingDirectory
             env["PWD"] = workingDirectory.path
         }
@@ -464,21 +542,29 @@ public struct TTYCommandRunner {
 
             guard didLaunch else { return }
 
+            let descendants = TTYProcessTreeTerminator.descendantPIDs(of: proc.processIdentifier)
             if proc.isRunning {
                 proc.terminate()
             }
-            if let pgid = processGroup {
-                kill(-pgid, SIGTERM)
-            }
+            TTYProcessTreeTerminator.terminateProcessTree(
+                rootPID: proc.processIdentifier,
+                processGroup: processGroup,
+                signal: SIGTERM,
+                knownDescendants: descendants)
             let waitDeadline = Date().addingTimeInterval(2.0)
             while proc.isRunning, Date() < waitDeadline {
                 usleep(100_000)
             }
             if proc.isRunning {
-                if let pgid = processGroup {
-                    kill(-pgid, SIGKILL)
+                TTYProcessTreeTerminator.terminateProcessTree(
+                    rootPID: proc.processIdentifier,
+                    processGroup: processGroup,
+                    signal: SIGKILL,
+                    knownDescendants: descendants)
+            } else {
+                for pid in descendants where pid > 0 {
+                    kill(pid, SIGKILL)
                 }
-                kill(proc.processIdentifier, SIGKILL)
             }
             if didLaunch {
                 proc.waitUntilExit()
@@ -487,6 +573,17 @@ public struct TTYCommandRunner {
             cleanedUp = true
             if didLaunch {
                 TTYCommandRunnerActiveProcessRegistry.unregister(pid: proc.processIdentifier)
+            }
+        }
+
+        guard TTYCommandRunnerActiveProcessRegistry.beginLaunch() else {
+            cleanup()
+            throw Error.launchFailed("App shutdown in progress")
+        }
+        var launchReservationHeld = true
+        defer {
+            if launchReservationHeld {
+                TTYCommandRunnerActiveProcessRegistry.endLaunch()
             }
         }
 
@@ -517,6 +614,8 @@ public struct TTYCommandRunner {
         if let processGroup {
             TTYCommandRunnerActiveProcessRegistry.updateProcessGroup(pid: pid, processGroup: processGroup)
         }
+        TTYCommandRunnerActiveProcessRegistry.endLaunch()
+        launchReservationHeld = false
         Self.log.debug("PTY launched", metadata: ["binary": binaryName])
 
         func send(_ text: String) throws {
@@ -879,12 +978,41 @@ public struct TTYCommandRunner {
         return self.runWhich(tool)
     }
 
+    private static func isClaudeBinary(requested: String, resolved: String, environment: [String: String]) -> Bool {
+        let requestedName = URL(fileURLWithPath: requested).lastPathComponent
+        let resolvedName = URL(fileURLWithPath: resolved).lastPathComponent
+        if requested == "claude" || requestedName == "claude" || resolvedName == "claude" {
+            return true
+        }
+
+        guard let override = environment["CLAUDE_CLI_PATH"], !override.isEmpty else { return false }
+        let normalizedOverride = self.normalizedExecutablePath(override)
+        return self.normalizedExecutablePath(resolved) == normalizedOverride
+            || self.normalizedExecutablePath(requested) == normalizedOverride
+    }
+
+    private static func normalizedExecutablePath(_ path: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        if realpath(expanded, &buffer) != nil {
+            return buffer.withUnsafeBufferPointer { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else { return expanded }
+                return String(cString: baseAddress)
+            }
+        }
+        return URL(fileURLWithPath: expanded).standardizedFileURL.path
+    }
+
     private static func runWhich(_ tool: String) -> String? {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         proc.arguments = [tool]
         var env = ProcessInfo.processInfo.environment
-        env["PATH"] = PathBuilder.effectivePATH(purposes: [.tty, .nodeTooling], env: env)
+        let loginPATH = LoginShellPathCache.shared.currentOrCapture()
+        env["PATH"] = PathBuilder.effectivePATH(
+            purposes: [.tty, .nodeTooling],
+            env: env,
+            loginPATH: loginPATH)
         proc.environment = env
         let pipe = Pipe()
         proc.standardOutput = pipe
@@ -933,6 +1061,29 @@ public struct TTYCommandRunner {
         }
         return env
     }
+}
+
+extension TTYCommandRunner {
+    @discardableResult
+    static func registerActiveProcessForAppShutdown(pid: pid_t, binary: String) -> Bool {
+        TTYCommandRunnerActiveProcessRegistry.register(pid: pid, binary: binary)
+    }
+
+    static func beginActiveProcessLaunchForAppShutdown() -> Bool {
+        TTYCommandRunnerActiveProcessRegistry.beginLaunch()
+    }
+
+    static func endActiveProcessLaunchForAppShutdown() {
+        TTYCommandRunnerActiveProcessRegistry.endLaunch()
+    }
+
+    static func updateActiveProcessGroupForAppShutdown(pid: pid_t, processGroup: pid_t?) {
+        TTYCommandRunnerActiveProcessRegistry.updateProcessGroup(pid: pid, processGroup: processGroup)
+    }
+
+    static func unregisterActiveProcessForAppShutdown(pid: pid_t) {
+        TTYCommandRunnerActiveProcessRegistry.unregister(pid: pid)
+    }
 
     static func _test_resetTrackedProcesses() {
         TTYCommandRunnerActiveProcessRegistry.reset()
@@ -954,8 +1105,19 @@ public struct TTYCommandRunner {
         TTYCommandRunnerActiveProcessRegistry.count()
     }
 
-    static func _test_drainTrackedProcessesForShutdown() -> [(pid: pid_t, binary: String, processGroup: pid_t?)] {
-        TTYCommandRunnerActiveProcessRegistry.drainForShutdown()
+    static func _test_beginTrackedProcessLaunch() -> Bool {
+        TTYCommandRunnerActiveProcessRegistry.beginLaunch()
+    }
+
+    static func _test_endTrackedProcessLaunch() {
+        TTYCommandRunnerActiveProcessRegistry.endLaunch()
+    }
+
+    static func _test_drainTrackedProcessesForShutdown(
+        onFenceSet: (() -> Void)? = nil)
+        -> [(pid: pid_t, binary: String, processGroup: pid_t?)]
+    {
+        TTYCommandRunnerActiveProcessRegistry.drainForShutdown(onFenceSet: onFenceSet)
     }
 
     static func _test_resolveShutdownTargets(

@@ -246,19 +246,18 @@ enum BedrockUsageFetcher {
             region: ceRegion,
             service: "ce")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BedrockUsageError.networkError("Invalid response")
+        let response = try await ProviderHTTPClient.shared.response(for: request)
+        guard response.statusCode == 200 else {
+            if Self.isDataUnavailableResponse(statusCode: response.statusCode, data: response.data) {
+                Self.log.info("AWS Cost Explorer data unavailable, assuming zero usage.")
+                return Data(#"{"ResultsByTime":[]}"#.utf8)
+            }
+            let summary = Self.sanitizedResponseBody(response.data)
+            Self.log.error("AWS Cost Explorer returned \(response.statusCode): \(summary)")
+            throw BedrockUsageError.apiError("HTTP \(response.statusCode)")
         }
 
-        guard httpResponse.statusCode == 200 else {
-            let summary = Self.sanitizedResponseBody(data)
-            Self.log.error("AWS Cost Explorer returned \(httpResponse.statusCode): \(summary)")
-            throw BedrockUsageError.apiError("HTTP \(httpResponse.statusCode)")
-        }
-
-        return data
+        return response.data
     }
 
     private static func nextPageToken(from data: Data) throws -> String? {
@@ -399,6 +398,25 @@ enum BedrockUsageFetcher {
         return (formatter.string(from: startOfMonth), formatter.string(from: tomorrow))
     }
 
+    private static func isDataUnavailableResponse(statusCode: Int, data: Data) -> Bool {
+        guard statusCode == 400,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return false
+        }
+
+        let nestedError = json["Error"] as? [String: Any]
+        let candidates = [
+            json["__type"],
+            json["code"],
+            json["Code"],
+            nestedError?["Code"],
+        ]
+        return candidates.compactMap { $0 as? String }.contains { rawCode in
+            rawCode.split(separator: "#").last == "DataUnavailableException"
+        }
+    }
+
     private static func sanitizedResponseBody(_ data: Data) -> String {
         guard !data.isEmpty,
               let body = String(bytes: data, encoding: .utf8)
@@ -421,8 +439,10 @@ enum BedrockUsageFetcher {
     }
 }
 
-public enum BedrockUsageError: LocalizedError, Sendable {
+public enum BedrockUsageError: LocalizedError, Sendable, Equatable {
     case missingCredentials
+    case awsCLINotFound
+    case profileSessionExpired(String)
     case networkError(String)
     case apiError(String)
     case parseFailed(String)
@@ -432,6 +452,10 @@ public enum BedrockUsageError: LocalizedError, Sendable {
         case .missingCredentials:
             "AWS credentials not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY " +
                 "or configure Bedrock in Settings."
+        case .awsCLINotFound:
+            "AWS CLI not found. Install the AWS CLI (v2) or set AWS_CLI_PATH to its location."
+        case let .profileSessionExpired(profile):
+            "AWS profile session expired. Run `aws sso login --profile \(profile)` and try again."
         case let .networkError(message):
             "AWS Bedrock network error: \(message)"
         case let .apiError(message):

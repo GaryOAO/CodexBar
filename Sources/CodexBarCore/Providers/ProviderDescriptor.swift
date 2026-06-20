@@ -55,15 +55,18 @@ public enum ProviderDescriptorRegistry {
     private static let descriptorsByID: [UsageProvider: ProviderDescriptor] = [
         .codex: CodexProviderDescriptor.descriptor,
         .openai: OpenAIAPIProviderDescriptor.descriptor,
+        .azureopenai: AzureOpenAIProviderDescriptor.descriptor,
         .claude: ClaudeProviderDescriptor.descriptor,
         .cursor: CursorProviderDescriptor.descriptor,
         .opencode: OpenCodeProviderDescriptor.descriptor,
         .opencodego: OpenCodeGoProviderDescriptor.descriptor,
         .alibaba: AlibabaCodingPlanProviderDescriptor.descriptor,
+        .alibabatokenplan: AlibabaTokenPlanProviderDescriptor.descriptor,
         .factory: FactoryProviderDescriptor.descriptor,
         .gemini: GeminiProviderDescriptor.descriptor,
         .antigravity: AntigravityProviderDescriptor.descriptor,
         .copilot: CopilotProviderDescriptor.descriptor,
+        .devin: DevinProviderDescriptor.descriptor,
         .zai: ZaiProviderDescriptor.descriptor,
         .minimax: MiniMaxProviderDescriptor.descriptor,
         .manus: ManusProviderDescriptor.descriptor,
@@ -76,6 +79,7 @@ public enum ProviderDescriptorRegistry {
         .kimik2: KimiK2ProviderDescriptor.descriptor,
         .moonshot: MoonshotProviderDescriptor.descriptor,
         .amp: AmpProviderDescriptor.descriptor,
+        .t3chat: T3ChatProviderDescriptor.descriptor,
         .ollama: OllamaProviderDescriptor.descriptor,
         .synthetic: SyntheticProviderDescriptor.descriptor,
         .openrouter: OpenRouterProviderDescriptor.descriptor,
@@ -95,6 +99,9 @@ public enum ProviderDescriptorRegistry {
         .stepfun: StepFunProviderDescriptor.descriptor,
         .bedrock: BedrockProviderDescriptor.descriptor,
         .grok: GrokProviderDescriptor.descriptor,
+        .groq: GroqProviderDescriptor.descriptor,
+        .llmproxy: LLMProxyProviderDescriptor.descriptor,
+        .deepgram: DeepgramProviderDescriptor.descriptor,
     ]
     private static let bootstrap: Void = {
         for provider in UsageProvider.allCases {

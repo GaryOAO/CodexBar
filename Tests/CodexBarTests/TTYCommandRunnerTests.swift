@@ -4,6 +4,8 @@ import Testing
 
 @Suite(.serialized)
 struct TTYCommandRunnerEnvTests {
+    private static let harnessPTYTimeout: TimeInterval = 10
+
     private final class CallbackCounter: @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0
@@ -71,6 +73,28 @@ struct TTYCommandRunnerEnvTests {
     }
 
     @Test
+    func `shutdown waits for launch cleanup before draining`() {
+        TTYCommandRunner._test_resetTrackedProcesses()
+        defer { TTYCommandRunner._test_resetTrackedProcesses() }
+
+        #expect(TTYCommandRunner._test_beginTrackedProcessLaunch())
+        let fenceSet = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            _ = TTYCommandRunner._test_drainTrackedProcessesForShutdown {
+                fenceSet.signal()
+            }
+            completed.signal()
+        }
+
+        #expect(fenceSet.wait(timeout: .now() + 1) == .success)
+        #expect(completed.wait(timeout: .now() + 0.05) == .timedOut)
+        #expect(!TTYCommandRunner._test_registerTrackedProcess(pid: 2002, binary: "codex"))
+        TTYCommandRunner._test_endTrackedProcessLaunch()
+        #expect(completed.wait(timeout: .now() + 1) == .success)
+    }
+
+    @Test
     func `shutdown resolver skips host process group fallback`() {
         let hostGroup: pid_t = 4242
         let targets: [(pid: pid_t, binary: String, processGroup: pid_t?)] = [
@@ -90,6 +114,43 @@ struct TTYCommandRunnerEnvTests {
         #expect(resolved[0].processGroup == nil)
         #expect(resolved[1].processGroup == nil)
         #expect(resolved[2].processGroup == 7777)
+    }
+
+    @Test
+    func `descendant resolver walks process tree once`() {
+        let children: [pid_t: [pid_t]] = [
+            100: [101, 102],
+            101: [103],
+            102: [103],
+            103: [100],
+        ]
+
+        let descendants = TTYProcessTreeTerminator.descendantPIDs(of: 100) { children[$0] ?? [] }
+
+        #expect(Set(descendants) == Set([101, 102, 103]))
+        #expect(descendants.count == 3)
+    }
+
+    @Test
+    func `process tree termination signals escaped descendants`() {
+        let children: [pid_t: [pid_t]] = [
+            100: [101, 102],
+            102: [103],
+        ]
+        var signaled: [(pid: pid_t, signal: Int32)] = []
+
+        TTYProcessTreeTerminator.terminateProcessTree(
+            rootPID: 100,
+            processGroup: 200,
+            signal: 15,
+            childResolver: { children[$0] ?? [] },
+            signalSender: { pid, signal in
+                signaled.append((pid: pid, signal: signal))
+            })
+
+        #expect(Set(signaled.map(\.pid)) == Set([100, 101, 102, 103, -200]))
+        #expect(signaled.allSatisfy { $0.signal == 15 })
+        #expect(signaled.last?.pid == 100)
     }
 
     @Test
@@ -165,9 +226,61 @@ struct TTYCommandRunnerEnvTests {
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let runner = TTYCommandRunner()
-        let result = try runner.run(binary: "/bin/pwd", send: "", options: .init(timeout: 3, workingDirectory: dir))
+        let result = try runner.run(
+            binary: "/bin/pwd",
+            send: "",
+            options: .init(timeout: Self.harnessPTYTimeout, workingDirectory: dir))
         let clean = result.text.replacingOccurrences(of: "\r", with: "")
         #expect(clean.contains(dir.path))
+    }
+
+    @Test
+    func `claude runner keeps normal working directory by default`() throws {
+        let runner = TTYCommandRunner()
+        let fakeClaude = try Self.makeFakeClaudeCLI()
+        let result = try runner.run(
+            binary: fakeClaude.path,
+            send: "",
+            options: .init(timeout: Self.harnessPTYTimeout, stopOnSubstrings: ["deep-link-enabled"]))
+        let clean = result.text.replacingOccurrences(of: "\r", with: "")
+
+        #expect(clean.contains("deep-link-enabled"))
+    }
+
+    @Test
+    func `claude runner uses probe directory with deep link registration disabled when requested`() throws {
+        let runner = TTYCommandRunner()
+        let fakeClaude = try Self.makeFakeClaudeCLI()
+        let result = try runner.run(
+            binary: fakeClaude.path,
+            send: "",
+            options: .init(
+                timeout: Self.harnessPTYTimeout,
+                stopOnSubstrings: ["deep-link-disabled"],
+                useClaudeProbeWorkingDirectory: true))
+        let clean = result.text.replacingOccurrences(of: "\r", with: "")
+
+        #expect(clean.contains("deep-link-disabled"))
+    }
+
+    @Test
+    func `claude runner uses probe directory for versioned CLI override`() throws {
+        let runner = TTYCommandRunner()
+        let fakeClaude = try Self.makeFakeClaudeCLI(fileName: "2.1.114")
+        var env = ProcessInfo.processInfo.environment
+        env["CLAUDE_CLI_PATH"] = fakeClaude.path
+
+        let result = try runner.run(
+            binary: fakeClaude.path,
+            send: "",
+            options: .init(
+                timeout: Self.harnessPTYTimeout,
+                baseEnvironment: env,
+                stopOnSubstrings: ["deep-link-disabled"],
+                useClaudeProbeWorkingDirectory: true))
+        let clean = result.text.replacingOccurrences(of: "\r", with: "")
+
+        #expect(clean.contains("deep-link-disabled"))
     }
 
     @Test
@@ -205,6 +318,27 @@ struct TTYCommandRunnerEnvTests {
                 settleAfterStop: 0.1))
 
         #expect(result.text.contains("accepted"))
+    }
+
+    private static func makeFakeClaudeCLI(fileName: String = "claude") throws -> URL {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("codexbar-tty-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let scriptURL = dir.appendingPathComponent(fileName)
+        let script = """
+        #!/bin/sh
+        settings="$PWD/.claude/settings.local.json"
+        if [ -f "$settings" ] \
+          && grep -q '"disableDeepLinkRegistration"' "$settings" \
+          && grep -q '"disable"' "$settings"; then
+          echo "deep-link-disabled"
+        else
+          echo "deep-link-enabled"
+        fi
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+        return scriptURL
     }
 
     @Test

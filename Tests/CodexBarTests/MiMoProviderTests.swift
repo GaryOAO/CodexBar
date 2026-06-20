@@ -378,10 +378,12 @@ struct MiMoProviderTests {
     @Test
     @MainActor
     func `provider detail plan row formats mimo as balance`() {
-        let row = ProviderDetailView<Text>.planRow(provider: .mimo, planText: "Balance: $25.51")
+        CodexBarLocalizationOverride.$appLanguage.withValue("en") {
+            let row = ProviderDetailView<Text>.planRow(provider: .mimo, planText: "Balance: $25.51")
 
-        #expect(row?.label == "Balance")
-        #expect(row?.value == "$25.51")
+            #expect(row?.label == "Balance")
+            #expect(row?.value == "$25.51")
+        }
     }
 
     @Test(arguments: [UsageProvider.openrouter, .mimo])
@@ -483,6 +485,29 @@ struct MiMoProviderTests {
 
         await #expect(throws: MiMoSettingsError.invalidCookie) {
             _ = try await strategy.fetch(context)
+        }
+    }
+
+    @Test
+    func `mimo cookie importer surfaces safari access denial`() throws {
+        let detection = BrowserDetection(
+            homeDirectory: "/tmp/codexbar-mimo-browser-test",
+            cacheTTL: 0,
+            fileExists: { _ in false },
+            directoryContents: { _ in nil })
+
+        do {
+            _ = try MiMoCookieImporter.importSessions(
+                browserDetection: detection,
+                loadRecords: { browser, _, _ in
+                    throw BrowserCookieError.accessDenied(
+                        browser: browser,
+                        details: "Grant CodexBar Full Disk Access to read Safari cookies.")
+                })
+            Issue.record("Expected Safari access denial")
+        } catch let error as MiMoSettingsError {
+            #expect(error.localizedDescription.contains("Full Disk Access"))
+            #expect(error.localizedDescription.contains("Safari"))
         }
     }
 

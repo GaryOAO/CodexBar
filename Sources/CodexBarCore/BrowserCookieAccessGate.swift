@@ -15,9 +15,26 @@ public enum BrowserCookieAccessGate {
     private static let cooldownInterval: TimeInterval = 60 * 60 * 6
     private static let log = CodexBarLog.logger(LogCategories.browserCookieGate)
 
+    /// User-facing master switch. When false (default), CodexBar will NOT
+    /// touch any browser cookie keychain item (Chrome/Chromium Safe Storage,
+    /// etc.) for automatic refreshes — the system "wants to use confidential
+    /// information" prompt only appears after the user explicitly toggles
+    /// this on. Local-patch (2026-05-17): the previous behavior attempted on
+    /// every refresh and only suppressed AFTER a deny + 6h cooldown, which
+    /// still produced one prompt per browser per session. This makes the
+    /// prompt strictly opt-in.
+    public static let manualOptInDefaultsKey = "browserCookieAutoImportEnabled"
+
     public static func shouldAttempt(_ browser: Browser, now: Date = Date()) -> Bool {
         guard browser.usesKeychainForCookieDecryption else { return true }
         guard !KeychainAccessGate.isDisabled else { return false }
+        // Master opt-in gate (default false = no automatic keychain prompts).
+        guard UserDefaults.standard.bool(forKey: self.manualOptInDefaultsKey) else {
+            self.log.debug(
+                "Browser cookie auto-import disabled (opt-in)",
+                metadata: ["browser": browser.displayName])
+            return false
+        }
         let shouldCheckKeychain = self.lock.withLock { state in
             self.loadIfNeeded(&state)
             if let blockedUntil = state.deniedUntilByBrowser[browser.rawValue] {

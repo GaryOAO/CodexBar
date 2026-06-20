@@ -34,6 +34,9 @@ public struct MiniMaxServiceUsage: Sendable {
     /// The percentage of quota used (0-100)
     public let percent: Double
 
+    /// Whether this quota window is explicitly unlimited.
+    public let isUnlimited: Bool
+
     /// The timestamp when the quota will reset, if available
     public let resetsAt: Date?
 
@@ -47,16 +50,46 @@ public struct MiniMaxServiceUsage: Sendable {
 
     /// The display name for this service
     public var displayName: String {
-        switch self.serviceType {
+        let normalized = self.serviceType.lowercased()
+        return switch normalized {
+        case "general":
+            "General"
+        case "video":
+            "Video"
         case "text-generation":
             "Text Generation"
         case "text-to-speech":
             "Text to Speech"
         case "image":
             "Image"
+        case "text generation":
+            "Text Generation"
+        case "text to speech":
+            "Text to Speech"
+        case "image generation":
+            "Image Generation"
+        case "text to video":
+            "Text to Video"
+        case "image to video":
+            "Image to Video"
+        case "music generation":
+            "Music Generation"
+        case "music generation · v2.6":
+            "Music Generation · v2.6"
+        case "music cover":
+            "Music Cover"
+        case "lyrics generation":
+            "Lyrics Generation"
+        case "image understanding":
+            "Image Understanding"
         default:
             self.serviceType
         }
+    }
+
+    public var isPrimaryTextQuotaLane: Bool {
+        let normalized = self.serviceType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "general" || self.displayName == "Text Generation"
     }
 
     /// Creates a new MiniMaxServiceUsage instance.
@@ -77,6 +110,7 @@ public struct MiniMaxServiceUsage: Sendable {
         usage: Int,
         limit: Int,
         percent: Double,
+        isUnlimited: Bool = false,
         resetsAt: Date?,
         resetDescription: String)
     {
@@ -86,6 +120,7 @@ public struct MiniMaxServiceUsage: Sendable {
         self.usage = usage
         self.limit = limit
         self.percent = percent
+        self.isUnlimited = isUnlimited
         self.resetsAt = resetsAt
         self.resetDescription = resetDescription
     }

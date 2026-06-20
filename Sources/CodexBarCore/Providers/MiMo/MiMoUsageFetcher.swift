@@ -3,14 +3,19 @@ import Foundation
 import FoundationNetworking
 #endif
 
-public enum MiMoSettingsError: LocalizedError, Sendable {
-    case missingCookie
+public enum MiMoSettingsError: LocalizedError, Sendable, Equatable {
+    case missingCookie(details: String? = nil)
     case invalidCookie
 
     public var errorDescription: String? {
         switch self {
-        case .missingCookie:
-            "No Xiaomi MiMo browser session found. Log in at platform.xiaomimimo.com first."
+        case let .missingCookie(details):
+            [
+                "No Xiaomi MiMo browser session found. Log in at platform.xiaomimimo.com first.",
+                details,
+            ]
+                .compactMap(\.self)
+                .joined(separator: " ")
         case .invalidCookie:
             "Xiaomi MiMo requires the api-platform_serviceToken and userId cookies."
         }
@@ -99,12 +104,9 @@ public enum MiMoUsageFetcher {
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
             forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw MiMoUsageError.networkError("Invalid response")
-        }
+        let response = try await ProviderHTTPClient.shared.response(for: request)
 
-        switch httpResponse.statusCode {
+        switch response.statusCode {
         case 200:
             break
         case 401:
@@ -112,10 +114,10 @@ public enum MiMoUsageFetcher {
         case 403:
             throw MiMoUsageError.invalidCredentials
         default:
-            throw MiMoUsageError.networkError("HTTP \(httpResponse.statusCode)")
+            throw MiMoUsageError.networkError("HTTP \(response.statusCode)")
         }
 
-        return data
+        return response.data
     }
 
     static func parseCombinedSnapshot(

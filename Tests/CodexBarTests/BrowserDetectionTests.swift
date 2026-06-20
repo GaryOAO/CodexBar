@@ -5,6 +5,7 @@ import Testing
 #if os(macOS)
 import SweetCookieKit
 
+@Suite(.serialized)
 struct BrowserDetectionTests {
     @Test
     func `safari always installed`() {
@@ -99,8 +100,80 @@ struct BrowserDetectionTests {
     func `keychain interaction suppresses chromium cookie source during cooldown`() {
         BrowserCookieAccessGate.resetForTesting()
         defer { BrowserCookieAccessGate.resetForTesting() }
+        // Fork local-patch gates keychain cookie import behind an opt-in (default OFF), which
+        // would short-circuit shouldAttempt before the keychain-preflight logic under test.
+        // Enable it for the duration of these keychain tests, scoped + restored so the opt-in
+        // default-OFF behavior other tests rely on is untouched.
+        UserDefaults.standard.set(true, forKey: BrowserCookieAccessGate.manualOptInDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: BrowserCookieAccessGate.manualOptInDefaultsKey) }
 
         let start = Date(timeIntervalSince1970: 1000)
+        var preflightCount = 0
+
+        KeychainAccessGate.withTaskOverrideForTesting(false) {
+            ProviderInteractionContext.$current.withValue(.userInitiated) {
+                KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in
+                    preflightCount += 1
+                    return .interactionRequired
+                } operation: {
+                    #expect(BrowserCookieAccessGate.shouldAttempt(.chrome, now: start) == false)
+                }
+
+                KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in
+                    preflightCount += 1
+                    return .allowed
+                } operation: {
+                    #expect(BrowserCookieAccessGate.shouldAttempt(.chrome, now: start.addingTimeInterval(60)) == false)
+                    #expect(
+                        BrowserCookieAccessGate.shouldAttempt(
+                            .chrome,
+                            now: start.addingTimeInterval((60 * 60 * 6) + 1)) == true)
+                }
+            }
+        }
+
+        #expect(preflightCount == 2)
+    }
+
+    @Test
+    func `background cookie import allows authorized chromium keychain sources`() {
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+        // Fork local-patch gates keychain cookie import behind an opt-in (default OFF), which
+        // would short-circuit shouldAttempt before the keychain-preflight logic under test.
+        // Enable it for the duration of these keychain tests, scoped + restored so the opt-in
+        // default-OFF behavior other tests rely on is untouched.
+        UserDefaults.standard.set(true, forKey: BrowserCookieAccessGate.manualOptInDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: BrowserCookieAccessGate.manualOptInDefaultsKey) }
+
+        var preflightCount = 0
+
+        KeychainAccessGate.withTaskOverrideForTesting(false) {
+            KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in
+                preflightCount += 1
+                return .allowed
+            } operation: {
+                ProviderInteractionContext.$current.withValue(.background) {
+                    #expect(BrowserCookieAccessGate.shouldAttempt(.chrome) == true)
+                    #expect(BrowserCookieAccessGate.shouldAttempt(.safari) == true)
+                }
+            }
+        }
+
+        #expect(preflightCount == 1)
+    }
+
+    @Test
+    func `background cookie import suppresses chromium keychain sources requiring interaction`() {
+        BrowserCookieAccessGate.resetForTesting()
+        defer { BrowserCookieAccessGate.resetForTesting() }
+        // Fork local-patch gates keychain cookie import behind an opt-in (default OFF), which
+        // would short-circuit shouldAttempt before the keychain-preflight logic under test.
+        // Enable it for the duration of these keychain tests, scoped + restored so the opt-in
+        // default-OFF behavior other tests rely on is untouched.
+        UserDefaults.standard.set(true, forKey: BrowserCookieAccessGate.manualOptInDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: BrowserCookieAccessGate.manualOptInDefaultsKey) }
+
         var preflightCount = 0
 
         KeychainAccessGate.withTaskOverrideForTesting(false) {
@@ -108,22 +181,14 @@ struct BrowserDetectionTests {
                 preflightCount += 1
                 return .interactionRequired
             } operation: {
-                #expect(BrowserCookieAccessGate.shouldAttempt(.chrome, now: start) == false)
-            }
-
-            KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in
-                preflightCount += 1
-                return .allowed
-            } operation: {
-                #expect(BrowserCookieAccessGate.shouldAttempt(.chrome, now: start.addingTimeInterval(60)) == false)
-                #expect(
-                    BrowserCookieAccessGate.shouldAttempt(
-                        .chrome,
-                        now: start.addingTimeInterval((60 * 60 * 6) + 1)) == true)
+                ProviderInteractionContext.$current.withValue(.background) {
+                    #expect(BrowserCookieAccessGate.shouldAttempt(.chrome) == false)
+                    #expect(BrowserCookieAccessGate.shouldAttempt(.safari) == true)
+                }
             }
         }
 
-        #expect(preflightCount == 2)
+        #expect(preflightCount == 1)
     }
 
     @Test
