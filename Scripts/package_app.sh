@@ -157,7 +157,7 @@ stage_build_products() {
 
   stage_dir="$PRODUCT_STAGE_ROOT/$arch"
   mkdir -p "$stage_dir"
-  for name in CodexBar CodexBarCLI CodexBarClaudeWatchdog; do
+  for name in CodexBar CodexBarClaudeWatchdog; do
     if ! product=$(codexbar_require_product_file "$bin_dir" "$name" "$arch"); then
       return 1
     fi
@@ -459,9 +459,6 @@ install_widget_extension() {
 
 install_binary "CodexBar" "$APP/Contents/MacOS/CodexBar"
 strip_release_binary "$APP/Contents/MacOS/CodexBar"
-# Ship CodexBarCLI alongside the app for easy symlinking.
-install_binary "CodexBarCLI" "$APP/Contents/Helpers/CodexBarCLI"
-strip_release_binary "$APP/Contents/Helpers/CodexBarCLI"
 # Watchdog helper: ensures `claude` probes die when CodexBar crashes/gets killed.
 install_binary "CodexBarClaudeWatchdog" "$APP/Contents/Helpers/CodexBarClaudeWatchdog"
 strip_release_binary "$APP/Contents/Helpers/CodexBarClaudeWatchdog"
@@ -560,9 +557,6 @@ xattr -cr "$APP"
 find "$APP" -name '._*' -delete
 
 # Sign helper binaries if present
-if [[ -f "${APP}/Contents/Helpers/CodexBarCLI" ]]; then
-  codesign "${CODESIGN_ARGS[@]}" "${APP}/Contents/Helpers/CodexBarCLI"
-fi
 if [[ -f "${APP}/Contents/Helpers/CodexBarClaudeWatchdog" ]]; then
   codesign "${CODESIGN_ARGS[@]}" "${APP}/Contents/Helpers/CodexBarClaudeWatchdog"
 fi

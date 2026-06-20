@@ -5,9 +5,9 @@ import Testing
 
 struct CodexBarWidgetProviderTests {
     @Test
-    func `small widget limits custom usage rows`() {
+    func `widget limits custom usage rows`() {
         let entry = WidgetSnapshot.ProviderEntry(
-            provider: .antigravity,
+            provider: .codex,
             updatedAt: Date(),
             primary: nil,
             secondary: nil,
@@ -28,196 +28,15 @@ struct CodexBarWidgetProviderTests {
     }
 
     @Test
-    func `small antigravity widget keeps one row per quota family`() {
-        let entry = WidgetSnapshot.ProviderEntry(
-            provider: .antigravity,
-            updatedAt: Date(),
-            primary: nil,
-            secondary: nil,
-            tertiary: nil,
-            usageRows: [
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-gemini-session",
-                    title: "Gemini Models Five Hour Limit",
-                    percentLeft: 80),
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-gemini-weekly",
-                    title: "Gemini Models Weekly Limit",
-                    percentLeft: 20),
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-third-party-session",
-                    title: "Claude and GPT models Five Hour Limit",
-                    percentLeft: 5),
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-third-party-weekly",
-                    title: "Claude and GPT models Weekly Limit",
-                    percentLeft: 60),
-            ],
-            creditsRemaining: nil,
-            codeReviewRemainingPercent: nil,
-            tokenUsage: nil,
-            dailyUsage: [])
-
-        let rows = WidgetUsageRow.rows(for: entry, limit: 2)
-
-        #expect(rows.map(\.title) == ["Gemini Models Weekly Limit", "Claude and GPT models Five Hour Limit"])
-        #expect(rows.compactMap(\.percentLeft) == [20, 5])
-        #expect(WidgetUsageRow.smallWidgetRowLimit(for: entry) == 2)
-        #expect(WidgetUsageRow.mediumWidgetRowLimit(for: entry) == 3)
-        let mediumRows = WidgetUsageRow.rows(
-            for: entry,
-            limit: WidgetUsageRow.mediumWidgetRowLimit(for: entry))
-        #expect(mediumRows.map(\.title) == [
-            "Gemini Models Weekly Limit",
-            "Claude and GPT models Five Hour Limit",
-            "Claude and GPT models Weekly Limit",
-        ])
+    func `provider choice supports codex`() {
+        #expect(ProviderChoice(provider: .codex) == .codex)
+        #expect(ProviderChoice.codex.provider == .codex)
     }
 
     @Test
-    func `small antigravity widget keeps claude gpt family when fallback rows are more constrained`() {
-        let entry = WidgetSnapshot.ProviderEntry(
-            provider: .antigravity,
-            updatedAt: Date(),
-            primary: nil,
-            secondary: nil,
-            tertiary: nil,
-            usageRows: [
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-gemini-5h",
-                    title: "Gemini Models Five Hour Limit",
-                    percentLeft: 40),
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-gemini-weekly",
-                    title: "Gemini Models Weekly Limit",
-                    percentLeft: 70),
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-3p-5h",
-                    title: "Claude and GPT models Five Hour Limit",
-                    percentLeft: 60),
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-other-5h",
-                    title: "Other Five Hour Limit",
-                    percentLeft: 1),
-            ],
-            creditsRemaining: nil,
-            codeReviewRemainingPercent: nil,
-            tokenUsage: nil,
-            dailyUsage: [])
-
-        let rows = WidgetUsageRow.rows(for: entry, limit: 2)
-
-        #expect(rows.map(\.id) == [
-            "antigravity-quota-summary-gemini-5h",
-            "antigravity-quota-summary-3p-5h",
-        ])
-    }
-
-    @Test
-    func `small widget preserves tertiary rows for other providers`() {
-        let entry = WidgetSnapshot.ProviderEntry(
-            provider: .cursor,
-            updatedAt: Date(),
-            primary: nil,
-            secondary: nil,
-            tertiary: nil,
-            usageRows: [
-                WidgetSnapshot.WidgetUsageRowSnapshot(id: "one", title: "One", percentLeft: 90),
-                WidgetSnapshot.WidgetUsageRowSnapshot(id: "two", title: "Two", percentLeft: 80),
-                WidgetSnapshot.WidgetUsageRowSnapshot(id: "three", title: "Three", percentLeft: 70),
-            ],
-            creditsRemaining: nil,
-            codeReviewRemainingPercent: nil,
-            tokenUsage: nil,
-            dailyUsage: [])
-
-        let limit = WidgetUsageRow.smallWidgetRowLimit(for: entry)
-
-        #expect(limit == nil)
-        #expect(WidgetUsageRow.rows(for: entry, limit: limit).map(\.id) == ["one", "two", "three"])
-    }
-
-    @Test
-    func `small antigravity widget prefers known quota rows`() {
-        let entry = WidgetSnapshot.ProviderEntry(
-            provider: .antigravity,
-            updatedAt: Date(),
-            primary: nil,
-            secondary: nil,
-            tertiary: nil,
-            usageRows: [
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-gemini-session",
-                    title: "Gemini Models Five Hour Limit",
-                    percentLeft: nil),
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-gemini-weekly",
-                    title: "Gemini Models Weekly Limit",
-                    percentLeft: 100),
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-third-party-session",
-                    title: "Claude and GPT models Five Hour Limit",
-                    percentLeft: 80),
-            ],
-            creditsRemaining: nil,
-            codeReviewRemainingPercent: nil,
-            tokenUsage: nil,
-            dailyUsage: [])
-
-        let rows = WidgetUsageRow.rows(for: entry, limit: 2)
-
-        #expect(rows.map(\.title) == ["Gemini Models Weekly Limit", "Claude and GPT models Five Hour Limit"])
-    }
-
-    @Test
-    func `small antigravity widget keeps nonstandard quota groups visible`() {
-        let entry = WidgetSnapshot.ProviderEntry(
-            provider: .antigravity,
-            updatedAt: Date(),
-            primary: nil,
-            secondary: nil,
-            tertiary: nil,
-            usageRows: [
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-other-session",
-                    title: "Other Session",
-                    percentLeft: 70),
-                WidgetSnapshot.WidgetUsageRowSnapshot(
-                    id: "antigravity-quota-summary-other-weekly",
-                    title: "Other Weekly",
-                    percentLeft: 40),
-            ],
-            creditsRemaining: nil,
-            codeReviewRemainingPercent: nil,
-            tokenUsage: nil,
-            dailyUsage: [])
-
-        let rows = WidgetUsageRow.rows(for: entry, limit: 2)
-
-        #expect(rows.map(\.title) == ["Other Weekly", "Other Session"])
-    }
-
-    @Test
-    func `provider choice supports alibaba`() {
-        #expect(ProviderChoice(provider: .alibaba) == .alibaba)
-        #expect(ProviderChoice.alibaba.provider == .alibaba)
-    }
-
-    @Test
-    func `provider choice supports alibaba token plan`() {
-        #expect(ProviderChoice(provider: .alibabatokenplan) == .alibabatokenplan)
-        #expect(ProviderChoice.alibabatokenplan.provider == .alibabatokenplan)
-    }
-
-    @Test
-    func `provider choice supports opencode go`() {
-        #expect(ProviderChoice(provider: .opencodego) == .opencodego)
-        #expect(ProviderChoice.opencodego.provider == .opencodego)
-    }
-
-    @Test
-    func `provider choice excludes unsupported Chutes widgets`() {
-        #expect(ProviderChoice(provider: .chutes) == nil)
+    func `provider choice supports claude`() {
+        #expect(ProviderChoice(provider: .claude) == .claude)
+        #expect(ProviderChoice.claude.provider == .claude)
     }
 
     @Test
@@ -228,10 +47,10 @@ struct CodexBarWidgetProviderTests {
     }
 
     @Test
-    func `supported providers keep alibaba when it is the only enabled provider`() {
+    func `supported providers keep claude when it is the only enabled provider`() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let entry = WidgetSnapshot.ProviderEntry(
-            provider: .alibaba,
+            provider: .claude,
             updatedAt: now,
             primary: nil,
             secondary: nil,
@@ -240,27 +59,9 @@ struct CodexBarWidgetProviderTests {
             codeReviewRemainingPercent: nil,
             tokenUsage: nil,
             dailyUsage: [])
-        let snapshot = WidgetSnapshot(entries: [entry], enabledProviders: [.alibaba], generatedAt: now)
+        let snapshot = WidgetSnapshot(entries: [entry], enabledProviders: [.claude], generatedAt: now)
 
-        #expect(CodexBarSwitcherTimelineProvider.supportedProviders(from: snapshot) == [.alibaba])
-    }
-
-    @Test
-    func `supported providers keep alibaba token plan when it is the only enabled provider`() {
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let entry = WidgetSnapshot.ProviderEntry(
-            provider: .alibabatokenplan,
-            updatedAt: now,
-            primary: nil,
-            secondary: nil,
-            tertiary: nil,
-            creditsRemaining: nil,
-            codeReviewRemainingPercent: nil,
-            tokenUsage: nil,
-            dailyUsage: [])
-        let snapshot = WidgetSnapshot(entries: [entry], enabledProviders: [.alibabatokenplan], generatedAt: now)
-
-        #expect(CodexBarSwitcherTimelineProvider.supportedProviders(from: snapshot) == [.alibabatokenplan])
+        #expect(CodexBarSwitcherTimelineProvider.supportedProviders(from: snapshot) == [.claude])
     }
 
     @Test
@@ -328,27 +129,6 @@ struct CodexBarWidgetProviderTests {
     }
 
     @Test
-    func `legacy widget usage rows use antigravity grouped slots`() {
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let entry = WidgetSnapshot.ProviderEntry(
-            provider: .antigravity,
-            updatedAt: now,
-            primary: RateWindow(usedPercent: 10, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            secondary: RateWindow(usedPercent: 20, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            tertiary: RateWindow(usedPercent: 30, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            creditsRemaining: nil,
-            codeReviewRemainingPercent: nil,
-            tokenUsage: nil,
-            dailyUsage: [])
-
-        let rows = WidgetUsageRow.rows(for: entry)
-
-        #expect(rows.map(\.id) == ["primary", "secondary"])
-        #expect(rows.map(\.title) == ["Gemini Models", "Claude and GPT"])
-        #expect(rows.compactMap(\.percentLeft) == [90, 80])
-    }
-
-    @Test
     func `widget configuration intents default to codex and credits`() {
         let providerIntent = ProviderSelectionIntent()
         let compactIntent = CompactMetricSelectionIntent()
@@ -386,38 +166,6 @@ struct CodexBarWidgetProviderTests {
         #expect(state.primaryWindow?.remainingPercent == 0)
         #expect(state.blankPrimaryChart)
         #expect(state.selectedResetOverride == weeklyReset)
-    }
-
-    @Test
-    func `gemini exhausted secondary window does not block the independent primary`() throws {
-        let primaryReset = Date(timeIntervalSince1970: 1_800_000_000)
-        let snapshot = Self.burnSnapshot(
-            provider: .gemini,
-            primaryUsed: 20,
-            secondaryUsed: 100,
-            primaryReset: primaryReset,
-            secondaryReset: primaryReset.addingTimeInterval(-3600))
-        let state = try #require(BurnDownState(snapshot: snapshot, provider: .gemini, selection: .session))
-
-        #expect(!state.secondaryGloballyCapsPrimary)
-        #expect(state.primaryWindow?.remainingPercent == 80)
-        #expect(!state.blankPrimaryChart)
-        #expect(state.selectedResetOverride == nil)
-    }
-
-    @Test
-    func `independent secondary reset never overrides primary reset`() throws {
-        let primaryReset = Date(timeIntervalSince1970: 1_800_000_000)
-        let snapshot = Self.burnSnapshot(
-            provider: .gemini,
-            primaryUsed: 20,
-            secondaryUsed: 30,
-            primaryReset: primaryReset,
-            secondaryReset: primaryReset.addingTimeInterval(-3600))
-        let state = try #require(BurnDownState(snapshot: snapshot, provider: .gemini, selection: .session))
-
-        #expect(state.selectedWindow?.resetsAt == primaryReset)
-        #expect(state.selectedResetOverride == nil)
     }
 
     @Test

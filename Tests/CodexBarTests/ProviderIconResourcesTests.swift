@@ -14,28 +14,6 @@ struct ProviderIconResourcesTests {
         let slugs = [
             "codex",
             "claude",
-            "zai",
-            "minimax",
-            "cursor",
-            "opencode",
-            "opencodego",
-            "alibaba",
-            "gemini",
-            "antigravity",
-            "factory",
-            "copilot",
-            "devin",
-            "crof",
-            "commandcode",
-            "t3chat",
-            "kimi",
-            "bedrock",
-            "elevenlabs",
-            "groq",
-            "llmproxy",
-            "litellm",
-            "deepgram",
-            "ollama",
         ]
         for slug in slugs {
             let url = resources.appending(path: "ProviderIcon-\(slug).svg")
@@ -46,16 +24,6 @@ struct ProviderIconResourcesTests {
             let image = NSImage(contentsOf: url)
             #expect(image != nil, "Could not load SVG as NSImage for \(slug)")
         }
-    }
-
-    @Test
-    func `groq and grok provider icons are distinct`() throws {
-        let root = try Self.repoRoot()
-        let resources = root.appending(path: "Sources/CodexBar/Resources", directoryHint: .isDirectory)
-        let groq = try String(contentsOf: resources.appending(path: "ProviderIcon-groq.svg"), encoding: .utf8)
-        let grok = try String(contentsOf: resources.appending(path: "ProviderIcon-grok.svg"), encoding: .utf8)
-
-        #expect(groq != grok)
     }
 
     @Test
@@ -72,11 +40,11 @@ struct ProviderIconResourcesTests {
     }
 
     @Test
-    func `ollama provider icon uses template rendering`() throws {
+    func `provider icon uses template rendering`() throws {
         ProviderBrandIcon.resetCacheForTesting()
         defer { ProviderBrandIcon.resetCacheForTesting() }
 
-        let image = try #require(ProviderBrandIcon.image(for: .ollama))
+        let image = try #require(ProviderBrandIcon.image(for: .claude))
 
         #expect(image.size == NSSize(width: 16, height: 16))
         #expect(image.isTemplate)

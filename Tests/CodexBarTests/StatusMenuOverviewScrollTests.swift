@@ -8,10 +8,7 @@ import Testing
 struct StatusMenuOverviewScrollTests {
     private func makeController(suiteName: String) -> StatusItemController {
         _ = NSApplication.shared
-        let settings = SettingsStore(
-            configStore: testConfigStore(suiteName: suiteName),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = SettingsStore(configStore: testConfigStore(suiteName: suiteName))
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         let fetcher = UsageFetcher()

@@ -16,14 +16,7 @@ struct StatusItemControllerSplitLifecycleTests {
     }
 
     private func makeSettings() -> SettingsStore {
-        let suite = "StatusItemControllerSplitLifecycleTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        testSettingsStore(suiteName: "StatusItemControllerSplitLifecycleTests")
     }
 
     private func containsHostingView(_ view: NSView) -> Bool {

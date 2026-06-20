@@ -200,10 +200,6 @@ struct StatusMenuSwitcherTrackingTests {
         let suite = "StatusMenuSwitcherTrackingTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        return SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite))
     }
 }

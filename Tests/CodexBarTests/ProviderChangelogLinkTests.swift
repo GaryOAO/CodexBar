@@ -11,7 +11,6 @@ struct ProviderChangelogLinkTests {
 
         #expect(metadata[.codex]?.changelogURL == "https://github.com/openai/codex/releases")
         #expect(metadata[.claude]?.changelogURL == "https://github.com/anthropics/claude-code/releases")
-        #expect(metadata[.gemini]?.changelogURL == "https://github.com/google-gemini/gemini-cli/releases")
     }
 
     @Test
@@ -30,11 +29,11 @@ struct ProviderChangelogLinkTests {
             changelogLinksEnabled: true)
         #expect(self.actionTitles(from: codexDescriptor).contains("Changelog"))
 
-        let openRouterDescriptor = self.makeDescriptor(
-            provider: .openrouter,
-            suite: "ProviderChangelogLinkTests-openrouter",
+        let claudeDescriptor = self.makeDescriptor(
+            provider: .claude,
+            suite: "ProviderChangelogLinkTests-claude",
             changelogLinksEnabled: true)
-        #expect(!self.actionTitles(from: openRouterDescriptor).contains("Changelog"))
+        #expect(self.actionTitles(from: claudeDescriptor).contains("Changelog"))
     }
 
     private func makeDescriptor(
@@ -44,11 +43,7 @@ struct ProviderChangelogLinkTests {
     {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite))
         settings.statusChecksEnabled = false
         settings.providerChangelogLinksEnabled = changelogLinksEnabled
 

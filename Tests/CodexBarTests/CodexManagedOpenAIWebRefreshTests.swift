@@ -652,11 +652,7 @@ struct CodexManagedOpenAIWebRefreshTests {
         defaults.removePersistentDomain(forName: suite)
         defaults.set(true, forKey: "providerDetectionCompleted")
         let configStore = testConfigStore(suiteName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: configStore,
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = SettingsStore(userDefaults: defaults, configStore: configStore)
         let codexMetadata = try #require(ProviderDescriptorRegistry.metadata[.codex])
         settings.setProviderEnabled(provider: .codex, metadata: codexMetadata, enabled: true)
         settings.providerDetectionCompleted = true

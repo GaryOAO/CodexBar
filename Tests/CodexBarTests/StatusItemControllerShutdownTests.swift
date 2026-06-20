@@ -122,13 +122,6 @@ struct StatusItemControllerShutdownTests {
     }
 
     private func makeSettings() -> SettingsStore {
-        let suite = "StatusItemControllerShutdownTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        testSettingsStore(suiteName: "StatusItemControllerShutdownTests")
     }
 }

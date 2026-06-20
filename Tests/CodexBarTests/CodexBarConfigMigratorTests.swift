@@ -100,28 +100,13 @@ struct CodexBarConfigMigratorTests {
         accountStore: CountingTokenAccountStore) -> CodexBarConfigMigrator.LegacyStores
     {
         CodexBarConfigMigrator.LegacyStores(
-            zaiTokenStore: secrets,
-            syntheticTokenStore: secrets,
             codexCookieStore: secrets,
             claudeCookieStore: secrets,
-            cursorCookieStore: secrets,
-            opencodeCookieStore: secrets,
-            factoryCookieStore: secrets,
-            minimaxCookieStore: secrets,
-            minimaxAPITokenStore: secrets,
-            kimiTokenStore: secrets,
-            kimiK2TokenStore: secrets,
-            augmentCookieStore: secrets,
-            ampCookieStore: secrets,
-            copilotTokenStore: secrets,
             tokenAccountStore: accountStore)
     }
 }
 
-private final class CountingLegacySecretStore: ZaiTokenStoring, SyntheticTokenStoring, CookieHeaderStoring,
-    MiniMaxCookieStoring, MiniMaxAPITokenStoring, KimiTokenStoring, KimiK2TokenStoring, CopilotTokenStoring,
-    @unchecked Sendable
-{
+private final class CountingLegacySecretStore: CookieHeaderStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var token: String?
     var throwOnStore: Bool

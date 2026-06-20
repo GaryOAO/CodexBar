@@ -74,11 +74,7 @@ struct StatusMenuPersistentRefreshTests {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let configStore = testConfigStore(suiteName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: configStore,
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        return SettingsStore(userDefaults: defaults, configStore: configStore)
     }
 
     private func makeController(
@@ -524,31 +520,6 @@ struct StatusMenuPersistentRefreshTests {
     }
 
     @Test
-    func `refresh monitor preserves multiline workspace credit text`() throws {
-        let settings = self.makeSettings()
-        let controller = self.makeController(settings: settings)
-        controller.store.snapshots[.amp] = UsageSnapshot(
-            primary: nil,
-            secondary: nil,
-            ampUsage: AmpUsageDetails(
-                individualCredits: 12,
-                workspaceBalances: [AmpWorkspaceBalance(name: "Team", remaining: 7)]),
-            updatedAt: Date())
-        let fallback = try #require(controller.menuCardModel(for: .amp))
-
-        controller.store.snapshots[.amp] = UsageSnapshot(
-            primary: nil,
-            secondary: nil,
-            ampUsage: AmpUsageDetails(
-                individualCredits: 10,
-                workspaceBalances: [AmpWorkspaceBalance(name: "Team", remaining: 3)]),
-            updatedAt: Date())
-        let refreshed = controller.menuCardRefreshMonitor.model(for: .amp, fallback: fallback)
-
-        #expect(refreshed.creditsText == fallback.creditsText)
-    }
-
-    @Test
     func `refresh monitor preserves tracked layout when refresh adds usage sections`() throws {
         let settings = self.makeSettings()
         let controller = self.makeController(settings: settings)
@@ -837,12 +808,12 @@ struct StatusMenuPersistentRefreshTests {
         let settings = self.makeSettings()
         settings.refreshFrequency = .manual
         settings.statusChecksEnabled = true
-        self.enableOnly([.synthetic], settings: settings)
+        self.enableOnly([.codex], settings: settings)
 
         let controller = self.makeController(settings: settings)
         controller.store._test_providerRefreshOverride = { _ in }
         controller.store._test_providerStatusFetchOverride = { provider in
-            #expect(provider == .synthetic)
+            #expect(provider == .codex)
             return ProviderStatus(indicator: .none, description: "Operational", updatedAt: Date())
         }
         var savedSnapshots = 0
@@ -851,12 +822,12 @@ struct StatusMenuPersistentRefreshTests {
         }
 
         await controller.performStoreRefresh(
-            for: .synthetic,
+            for: .codex,
             refreshOpenMenusWhenComplete: false,
             interaction: .userInitiated)
         _ = await controller.store.widgetSnapshotPersistTask?.result
 
-        #expect(controller.store.statuses[.synthetic]?.description == "Operational")
+        #expect(controller.store.statuses[.codex]?.description == "Operational")
         #expect(savedSnapshots == 1)
     }
 

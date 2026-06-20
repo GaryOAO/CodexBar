@@ -1,6 +1,5 @@
 import CodexBarCore
 import Foundation
-import SwiftUI
 import Testing
 @testable import CodexBar
 
@@ -47,53 +46,6 @@ struct PopupLocalizationTests {
     }
 
     @Test
-    func `inline dashboard labels use selected localization`() throws {
-        try CodexBarLocalizationOverride.$appLanguage.withValue("zh-Hant") {
-            let now = Date(timeIntervalSince1970: 1_700_179_200)
-            let metadata = try #require(ProviderDefaults.metadata[.openrouter])
-            let usage = OpenRouterUsageSnapshot(
-                totalCredits: 100,
-                totalUsage: 40,
-                balance: 60,
-                usedPercent: 40,
-                keyDataFetched: true,
-                keyLimit: 25,
-                keyUsage: 10,
-                keyUsageDaily: 1.25,
-                keyUsageWeekly: 7.5,
-                keyUsageMonthly: 18.75,
-                rateLimit: OpenRouterRateLimit(requests: 100, interval: "10s"),
-                updatedAt: now)
-
-            let model = UsageMenuCardView.Model.make(.init(
-                provider: .openrouter,
-                metadata: metadata,
-                snapshot: usage.toUsageSnapshot(),
-                credits: nil,
-                creditsError: nil,
-                dashboard: nil,
-                dashboardError: nil,
-                tokenSnapshot: nil,
-                tokenError: nil,
-                account: AccountInfo(email: nil, plan: nil),
-                isRefreshing: false,
-                lastError: nil,
-                usageBarsShowUsed: false,
-                resetTimeDisplayStyle: .countdown,
-                tokenCostUsageEnabled: false,
-                showOptionalCreditsAndExtraUsage: true,
-                hidePersonalInfo: false,
-                now: now))
-
-            let dashboard = try #require(model.inlineUsageDashboard)
-
-            #expect(dashboard.kpis.map(\.title) == ["餘額", "今天", "週", "月"])
-            #expect(dashboard.points.map(\.label) == ["今天", "週", "月"])
-            #expect(dashboard.detailLines.contains("速率限制: 100 / 10s"))
-        }
-    }
-
-    @Test
     func `cookie source dynamic subtitles use selected localization`() {
         CodexBarLocalizationOverride.$appLanguage.withValue("zh-Hant") {
             let subtitle = ProviderCookieSourceUI.subtitle(
@@ -123,53 +75,10 @@ struct PopupLocalizationTests {
         }
     }
 
-    @Test
-    func `provider organization entries preserve provider supplied text`() throws {
-        let settings = try Self.makeSettingsStore(suite: "PopupLocalizationTests-organizations")
-        settings.kiloKnownOrganizations = [
-            KiloOrganization(id: "org_cost", name: "Cost", role: "Today"),
-        ]
-        let store = UsageStore(
-            fetcher: UsageFetcher(environment: [:]),
-            browserDetection: BrowserDetection(cacheTTL: 0),
-            settings: settings,
-            startupBehavior: .testing)
-        let context = ProviderSettingsContext(
-            provider: .kilo,
-            settings: settings,
-            store: store,
-            boolBinding: { keyPath in
-                Binding(
-                    get: { settings[keyPath: keyPath] },
-                    set: { settings[keyPath: keyPath] = $0 })
-            },
-            stringBinding: { keyPath in
-                Binding(
-                    get: { settings[keyPath: keyPath] },
-                    set: { settings[keyPath: keyPath] = $0 })
-            },
-            statusText: { _ in nil },
-            setStatusText: { _, _ in },
-            lastAppActiveRunAt: { _ in nil },
-            setLastAppActiveRunAt: { _, _ in },
-            requestConfirmation: { _ in })
-        let descriptor = try #require(KiloProviderImplementation().settingsOrganizations(context: context))
-        let orgEntry = try #require(descriptor.entries().first { $0.id == "org_cost" })
-
-        #expect(orgEntry.title == "Cost")
-        #expect(orgEntry.localizesTitle == false)
-        #expect(orgEntry.subtitle == "Today")
-        #expect(orgEntry.localizesSubtitle == false)
-    }
-
     private static func makeSettingsStore(suite: String) throws -> SettingsStore {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite))
         settings.statusChecksEnabled = false
         return settings
     }

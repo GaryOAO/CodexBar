@@ -11,9 +11,9 @@ struct StatusMenuMergedOverviewRefreshTests {
         let settings = self.makeSettings()
         settings.refreshFrequency = .manual
         settings.mergeIcons = true
-        let activeProviders: Set<UsageProvider> = [.claude, .codex, .cursor, .opencode]
+        let activeProviders: Set<UsageProvider> = [.claude, .codex]
         self.enableOnly(activeProviders, settings: settings)
-        settings.mergedOverviewSelectedProviders = [.claude, .codex, .cursor]
+        settings.mergedOverviewSelectedProviders = [.codex]
         settings.mergedMenuLastSelectedWasOverview = true
 
         let controller = self.makeController(settings: settings)
@@ -24,9 +24,9 @@ struct StatusMenuMergedOverviewRefreshTests {
 
         let visibleProviders = settings.resolvedMergedOverviewProviders(
             activeProviders: controller.store.enabledProvidersForDisplay())
-        #expect(!visibleProviders.contains(.opencode))
+        #expect(!visibleProviders.contains(.claude))
 
-        controller.store.refreshingProviders.insert(.opencode)
+        controller.store.refreshingProviders.insert(.claude)
         controller.updatePersistentRefreshItemsEnabled()
         #expect(controller.isRefreshActionInFlight(for: menu))
         let refreshItem = try #require(menu.items.first { $0.title == "Refresh" })
@@ -51,11 +51,7 @@ struct StatusMenuMergedOverviewRefreshTests {
         let suite = "StatusMenuMergedOverviewRefreshTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        return SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite))
     }
 
     private func makeController(settings: SettingsStore) -> StatusItemController {

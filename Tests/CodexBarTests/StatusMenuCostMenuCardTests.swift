@@ -114,11 +114,7 @@ struct StatusMenuCostMenuCardTests {
         let suite = "StatusMenuCostMenuCardTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        return SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite))
     }
 
     private func makeModel(
@@ -133,7 +129,6 @@ struct StatusMenuCostMenuCardTests {
             planText: "Pro",
             metrics: [],
             usageNotes: [],
-            openAIAPIUsage: nil,
             inlineUsageDashboard: nil,
             creditsText: nil,
             creditsRemaining: nil,

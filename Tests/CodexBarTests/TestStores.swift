@@ -21,86 +21,6 @@ final class InMemoryCookieHeaderStore: CookieHeaderStoring, @unchecked Sendable 
     }
 }
 
-final class InMemoryMiniMaxCookieStore: MiniMaxCookieStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadCookieHeader() throws -> String? {
-        self.value
-    }
-
-    func storeCookieHeader(_ header: String?) throws {
-        self.value = header
-    }
-}
-
-final class InMemoryMiniMaxAPITokenStore: MiniMaxAPITokenStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadToken() throws -> String? {
-        self.value
-    }
-
-    func storeToken(_ token: String?) throws {
-        self.value = token
-    }
-}
-
-final class InMemoryKimiTokenStore: KimiTokenStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadToken() throws -> String? {
-        self.value
-    }
-
-    func storeToken(_ token: String?) throws {
-        self.value = token
-    }
-}
-
-final class InMemoryKimiK2TokenStore: KimiK2TokenStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadToken() throws -> String? {
-        self.value
-    }
-
-    func storeToken(_ token: String?) throws {
-        self.value = token
-    }
-}
-
-final class InMemoryCopilotTokenStore: CopilotTokenStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadToken() throws -> String? {
-        self.value
-    }
-
-    func storeToken(_ token: String?) throws {
-        self.value = token
-    }
-}
-
 final class InMemoryTokenAccountStore: ProviderTokenAccountStoring, @unchecked Sendable {
     var accounts: [UsageProvider: ProviderTokenAccountData] = [:]
     private let fileURL: URL
@@ -146,24 +66,7 @@ func testSettingsStore(
         preconditionFailure("Could not create test defaults suite")
     }
     defaults.removePersistentDomain(forName: isolatedSuiteName)
-    return SettingsStore(
-        userDefaults: defaults,
-        configStore: testConfigStore(suiteName: isolatedSuiteName),
-        zaiTokenStore: NoopZaiTokenStore(),
-        syntheticTokenStore: NoopSyntheticTokenStore(),
-        codexCookieStore: InMemoryCookieHeaderStore(),
-        claudeCookieStore: InMemoryCookieHeaderStore(),
-        cursorCookieStore: InMemoryCookieHeaderStore(),
-        opencodeCookieStore: InMemoryCookieHeaderStore(),
-        factoryCookieStore: InMemoryCookieHeaderStore(),
-        minimaxCookieStore: InMemoryMiniMaxCookieStore(),
-        minimaxAPITokenStore: InMemoryMiniMaxAPITokenStore(),
-        kimiTokenStore: InMemoryKimiTokenStore(),
-        kimiK2TokenStore: InMemoryKimiK2TokenStore(),
-        augmentCookieStore: InMemoryCookieHeaderStore(),
-        ampCookieStore: InMemoryCookieHeaderStore(),
-        copilotTokenStore: InMemoryCopilotTokenStore(),
-        tokenAccountStore: tokenAccountStore)
+    return SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: isolatedSuiteName), codexCookieStore: InMemoryCookieHeaderStore(), claudeCookieStore: InMemoryCookieHeaderStore(), tokenAccountStore: tokenAccountStore)
 }
 
 #if os(macOS)

@@ -44,73 +44,7 @@ struct CostUsageScannerTests {
     }
 
     @Test
-    func `vertex daily report filters claude logs`() throws {
-        let env = try CostUsageTestEnvironment()
-        defer { env.cleanup() }
-
-        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 20)
-        let iso0 = env.isoString(for: day)
-
-        let vertexEntry: [String: Any] = [
-            "type": "assistant",
-            "timestamp": iso0,
-            "metadata": [
-                "provider": "vertexai",
-                "projectId": "vertex-project",
-                "location": "us-central1",
-            ],
-            "message": [
-                "model": "claude-sonnet-4-20250514",
-                "usage": [
-                    "input_tokens": 10,
-                    "cache_creation_input_tokens": 0,
-                    "cache_read_input_tokens": 0,
-                    "output_tokens": 5,
-                ],
-            ],
-        ]
-        let claudeEntry: [String: Any] = [
-            "type": "assistant",
-            "timestamp": iso0,
-            "metadata": [
-                "provider": "anthropic",
-            ],
-            "message": [
-                "model": "claude-sonnet-4-20250514",
-                "usage": [
-                    "input_tokens": 200,
-                    "cache_creation_input_tokens": 0,
-                    "cache_read_input_tokens": 0,
-                    "output_tokens": 100,
-                ],
-            ],
-        ]
-
-        _ = try env.writeClaudeProjectFile(
-            relativePath: "project-a/session-a.jsonl",
-            contents: env.jsonl([vertexEntry, claudeEntry]))
-
-        var options = CostUsageScanner.Options(
-            codexSessionsRoot: nil,
-            claudeProjectsRoots: [env.claudeProjectsRoot],
-            cacheRoot: env.cacheRoot)
-        options.refreshMinIntervalSeconds = 0
-
-        let report = CostUsageScanner.loadDailyReport(
-            provider: .vertexai,
-            since: day,
-            until: day,
-            now: day,
-            options: options)
-
-        #expect(report.data.count == 1)
-        #expect(report.data[0].inputTokens == 10)
-        #expect(report.data[0].outputTokens == 5)
-        #expect(report.data[0].totalTokens == 15)
-    }
-
-    @Test
-    func `vertex daily report detects by vrtx id prefix`() throws {
+    func `claude report excludes vertex ai entries by vrtx id prefix`() throws {
         let env = try CostUsageTestEnvironment()
         defer { env.cleanup() }
 
@@ -160,19 +94,6 @@ struct CostUsageScannerTests {
             claudeProjectsRoots: [env.claudeProjectsRoot],
             cacheRoot: env.cacheRoot)
         options.refreshMinIntervalSeconds = 0
-
-        // Vertex AI report should only include entries with _vrtx_ prefix
-        let vertexReport = CostUsageScanner.loadDailyReport(
-            provider: .vertexai,
-            since: day,
-            until: day,
-            now: day,
-            options: options)
-
-        #expect(vertexReport.data.count == 1)
-        #expect(vertexReport.data[0].inputTokens == 100)
-        #expect(vertexReport.data[0].outputTokens == 50)
-        #expect(vertexReport.data[0].totalTokens == 150)
 
         // Claude report with excludeVertexAI should only include non-vrtx entries
         var claudeOptions = options

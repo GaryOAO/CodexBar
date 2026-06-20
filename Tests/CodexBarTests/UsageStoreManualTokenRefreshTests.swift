@@ -274,14 +274,7 @@ struct UsageStoreManualTokenRefreshTests {
     }
 
     private static func makeStore(enabledProviders: Set<UsageProvider> = [.codex]) -> UsageStore {
-        let suite = "UsageStoreManualTokenRefreshTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = testSettingsStore(suiteName: "UsageStoreManualTokenRefreshTests")
         settings.refreshFrequency = .manual
         settings.statusChecksEnabled = false
         settings.costUsageEnabled = true

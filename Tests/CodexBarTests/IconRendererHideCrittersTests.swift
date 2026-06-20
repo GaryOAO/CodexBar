@@ -23,10 +23,6 @@ struct IconRendererHideCrittersTests {
     @Test(arguments: [
         IconStyle.codex,
         .claude,
-        .gemini,
-        .antigravity,
-        .factory,
-        .warp,
     ])
     func `hiding critters removes every decorated style twist`(style: IconStyle) throws {
         let decorated = self.icon(style: style, hideCritters: false)
@@ -38,31 +34,27 @@ struct IconRendererHideCrittersTests {
     @Test(arguments: [
         IconStyle.codex,
         .claude,
-        .gemini,
-        .antigravity,
-        .factory,
-        .warp,
     ])
     func `hidden decorated styles match plain capsule bars`(style: IconStyle) throws {
         let hidden = self.icon(style: style, hideCritters: true)
-        let reference = self.icon(style: .cursor, hideCritters: true)
+        let reference = self.icon(style: .combined, hideCritters: true)
 
         #expect(try self.pixels(hidden) == self.pixels(reference))
     }
 
     @Test
-    func `hiding critters removes warp eyes without weekly quota`() throws {
-        let decorated = self.icon(style: .warp, weeklyRemaining: nil, hideCritters: false)
-        let plain = self.icon(style: .warp, weeklyRemaining: nil, hideCritters: true)
+    func `hiding critters removes codex face without weekly quota`() throws {
+        let decorated = self.icon(style: .codex, weeklyRemaining: nil, hideCritters: false)
+        let plain = self.icon(style: .codex, weeklyRemaining: nil, hideCritters: true)
 
         #expect(try self.pixels(decorated) != self.pixels(plain))
     }
 
     @Test
     func `hiding critters is a no-op for an undecorated style`() throws {
-        // Cursor has no critter twist, so the flag must not alter its bars.
-        let withFlag = self.icon(style: .cursor, hideCritters: true)
-        let withoutFlag = self.icon(style: .cursor, hideCritters: false)
+        // The combined style has no critter twist, so the flag must not alter its bars.
+        let withFlag = self.icon(style: .combined, hideCritters: true)
+        let withoutFlag = self.icon(style: .combined, hideCritters: false)
 
         #expect(try self.pixels(withFlag) == self.pixels(withoutFlag))
     }

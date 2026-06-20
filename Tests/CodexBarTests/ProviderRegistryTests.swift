@@ -32,17 +32,4 @@ struct ProviderRegistryTests {
         let secondPass = ProviderImplementationRegistry.all.map(\.id)
         #expect(ids == secondPass, "ProviderImplementationRegistry order changed between reads.")
     }
-
-    @Test
-    func `minimax sorts after zai in registry`() {
-        let ids = ProviderDescriptorRegistry.all.map(\.id)
-        guard let zaiIndex = ids.firstIndex(of: .zai),
-              let minimaxIndex = ids.firstIndex(of: .minimax)
-        else {
-            Issue.record("Missing z.ai or MiniMax provider in registry order.")
-            return
-        }
-
-        #expect(zaiIndex < minimaxIndex)
-    }
 }

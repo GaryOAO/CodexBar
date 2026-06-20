@@ -99,14 +99,7 @@ struct UsageStoreCachedTokenHydrationTests {
     }
 
     private static func makeCodexOnlySettings(historyDays: Int) -> SettingsStore {
-        let suite = "UsageStoreCachedTokenHydrationTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = testSettingsStore(suiteName: "UsageStoreCachedTokenHydrationTests")
         settings.refreshFrequency = .manual
         settings.statusChecksEnabled = false
         settings.costUsageEnabled = true

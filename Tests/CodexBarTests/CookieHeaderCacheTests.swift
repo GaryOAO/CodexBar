@@ -290,7 +290,6 @@ struct CookieHeaderCacheTests {
                 scope: .managedAccount(codexAccount),
                 cookieHeader: "auth=codex-account",
                 sourceLabel: "Safari")
-            CookieHeaderCache.store(provider: .perplexity, cookieHeader: "pplx=web", sourceLabel: "Chrome")
 
             let cleared = CookieHeaderCache.clearAllScopesDetailed(provider: .claude)
 
@@ -300,7 +299,6 @@ struct CookieHeaderCacheTests {
             #expect(CookieHeaderCache.load(provider: .codex)?.cookieHeader == "auth=codex-global")
             #expect(CookieHeaderCache.load(provider: .codex, scope: .managedAccount(codexAccount))?
                 .cookieHeader == "auth=codex-account")
-            #expect(CookieHeaderCache.load(provider: .perplexity)?.cookieHeader == "pplx=web")
         }
     }
 
@@ -904,7 +902,7 @@ struct CookieHeaderCacheTests {
                 cookieHeader: "auth=codex",
                 sourceLabel: "Chrome")
             KeychainCacheStore.store(
-                key: .cookie(provider: .cursor),
+                key: .cookie(provider: .codex),
                 entry: WrongEntry(value: "invalid"))
 
             let cleared = CookieHeaderCache.clearAllDetailed()

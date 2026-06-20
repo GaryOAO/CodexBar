@@ -63,11 +63,7 @@ struct StatusMenuScopedCodexRefreshTests {
         let suite = "StatusMenuScopedCodexRefreshTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        return SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite))
     }
 
     private func enableOnlyCodex(_ settings: SettingsStore) {
