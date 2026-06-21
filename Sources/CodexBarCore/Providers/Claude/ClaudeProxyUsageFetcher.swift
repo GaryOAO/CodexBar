@@ -69,8 +69,14 @@ public enum ClaudeProxyUsageFetcher {
         let buckets = response.daily_buckets ?? [:]
         let daily: [CostUsageDailyReport.Entry] = buckets.keys.sorted().map { day in
             let d = buckets[day]
-            let total = (d?.input_tokens ?? 0) + (d?.output_tokens ?? 0)
-                + (d?.cache_creation_input_tokens ?? 0) + (d?.cache_read_input_tokens ?? 0)
+            // Explicitly-typed sub-expressions: the single 4-term optional-coalesced
+            // sum otherwise trips the Swift type-checker's "reasonable time" heuristic
+            // on the CI toolchain and fails the release build.
+            let input: Int = d?.input_tokens ?? 0
+            let output: Int = d?.output_tokens ?? 0
+            let cacheCreation: Int = d?.cache_creation_input_tokens ?? 0
+            let cacheRead: Int = d?.cache_read_input_tokens ?? 0
+            let total = input + output + cacheCreation + cacheRead
             return CostUsageDailyReport.Entry(
                 date: day,
                 inputTokens: d?.input_tokens,
