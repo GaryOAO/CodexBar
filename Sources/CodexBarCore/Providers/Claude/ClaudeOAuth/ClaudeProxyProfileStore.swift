@@ -86,8 +86,15 @@ public enum ClaudeProxyProfileStore {
         guard let env = parsed["env"] as? [String: Any] else { return nil }
         let baseURL = (env["ANTHROPIC_BASE_URL"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let token = (env["ANTHROPIC_API_KEY"] as? String)?
+        // Claude Code stores a bearer-token proxy key under ANTHROPIC_AUTH_TOKEN
+        // (sent as `Authorization: Bearer`); ANTHROPIC_API_KEY is the `x-api-key`
+        // variant. Prefer AUTH_TOKEN, fall back to API_KEY, so a machine routing
+        // Claude Code through the proxy with either convention hydrates correctly.
+        let authToken = (env["ANTHROPIC_AUTH_TOKEN"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let apiKey = (env["ANTHROPIC_API_KEY"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let token = authToken.isEmpty ? apiKey : authToken
         if baseURL.isEmpty, token.isEmpty {
             return nil
         }
