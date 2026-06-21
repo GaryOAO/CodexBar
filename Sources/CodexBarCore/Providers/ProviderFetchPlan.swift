@@ -37,10 +37,9 @@ public struct ProviderFetchContext: Sendable {
     public let tokenAccountTokenUpdater: TokenAccountTokenUpdater?
     public let providerManualTokenUpdater: ProviderManualTokenUpdater?
     public let costUsageHistoryDays: Int
-    /// Whether warm CLI helper sessions (such as the managed Antigravity `agy`
-    /// process) may outlive a single fetch. True for long-lived hosts (the app,
-    /// `codexbar serve`); false for one-shot CLI invocations that should reset
-    /// the session after each fetch.
+    /// Whether warm CLI helper sessions may outlive a single fetch. True for
+    /// long-lived hosts (the app, `codexbar serve`); false for one-shot CLI
+    /// invocations that should reset the session after each fetch.
     public let persistsCLISessions: Bool
     /// Minimum idle lifetime for persistent CLI helper sessions. Long-lived
     /// hosts set this beyond their refresh cadence so a slow cold start can
@@ -90,7 +89,8 @@ public struct ProviderFetchContext: Sendable {
 
 public enum ProviderCLISessionLifecycle {
     public static func shutdownPersistentSessions() async {
-        await AntigravityCLISession.shared.reset()
+        // Codex and Claude do not keep warm CLI helper sessions alive across
+        // fetches, so there is nothing to tear down here.
     }
 }
 

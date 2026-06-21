@@ -71,8 +71,7 @@ struct StatusMenuLocalizationRefreshTests {
             controller.menuWillOpen(menu)
         }
         controller.openMenus[ObjectIdentifier(menu)] = menu
-        StatusItemController.setMenuRefreshEnabledForTesting(true)
-        defer { StatusItemController.resetMenuRefreshEnabledForTesting() }
+        controller.menuRefreshEnabledOverrideForTesting = true
 
         #expect(Self.switcherButtons(in: menu).first?.title == "Resumen")
         #expect(menu.items.first(where: { $0.representedObject as? String == "menuCardCost" })?.title == "Coste")
@@ -118,11 +117,7 @@ struct StatusMenuLocalizationRefreshTests {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let configStore = testConfigStore(suiteName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: configStore,
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        return SettingsStore(userDefaults: defaults, configStore: configStore)
     }
 
     private static func switcherButtons(in menu: NSMenu) -> [NSButton] {

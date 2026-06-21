@@ -17,14 +17,30 @@ enum MenuBarMetricWindowResolver {
     {
         guard let snapshot else { return nil }
         switch preference {
+        case .monthlyPlan:
+            return snapshot.extraRateWindows?.first { $0.id == "mistral-monthly-plan" }?.window
         case .extraUsage:
             return Self.extraUsageWindow(snapshot: snapshot)
         case .tertiary:
-            return Self.window(in: snapshot, following: Self.tertiaryOrder(for: provider))
+            return Self.requestedWindow(
+                provider: provider,
+                snapshot: snapshot,
+                lanes: Self.tertiaryOrder(for: provider))
         case .primary:
-            return Self.window(in: snapshot, following: Self.primaryOrder(for: provider))
+            return Self.requestedWindow(
+                provider: provider,
+                snapshot: snapshot,
+                lanes: Self.primaryOrder(for: provider))
         case .secondary:
-            return Self.window(in: snapshot, following: Self.secondaryOrder(for: provider))
+            return Self.requestedWindow(
+                provider: provider,
+                snapshot: snapshot,
+                lanes: Self.secondaryOrder(for: provider))
+        case .primaryAndSecondary:
+            return Self.mostConstrainedWindow(
+                primary: snapshot.primary,
+                secondary: snapshot.secondary,
+                tertiary: nil)
         case .average:
             return Self.averageWindow(provider: provider, snapshot: snapshot, supportsAverage: supportsAverage)
         case .automatic:
@@ -33,32 +49,17 @@ enum MenuBarMetricWindowResolver {
     }
 
     private static func tertiaryOrder(for provider: UsageProvider) -> [Lane] {
-        if provider == .zai {
-            return [.tertiary, .primary, .secondary]
-        }
-        if provider == .perplexity || provider == .cursor || provider == .antigravity {
-            return [.tertiary, .secondary, .primary]
-        }
+        _ = provider
         return [.primary, .secondary]
     }
 
     private static func primaryOrder(for provider: UsageProvider) -> [Lane] {
-        if provider == .zai {
-            return [.primary, .tertiary, .secondary]
-        }
-        if provider == .perplexity || provider == .antigravity {
-            return [.primary, .secondary, .tertiary]
-        }
+        _ = provider
         return [.primary, .secondary]
     }
 
     private static func secondaryOrder(for provider: UsageProvider) -> [Lane] {
-        if provider == .zai || provider == .antigravity {
-            return [.secondary, .primary, .tertiary]
-        }
-        if provider == .perplexity {
-            return [.secondary, .tertiary, .primary]
-        }
+        _ = provider
         return [.secondary, .primary]
     }
 
@@ -68,13 +69,11 @@ enum MenuBarMetricWindowResolver {
         supportsAverage: Bool)
         -> RateWindow?
     {
+        _ = provider
         guard supportsAverage,
               let primary = snapshot.primary,
               let secondary = snapshot.secondary
         else {
-            if provider == .antigravity {
-                return self.window(in: snapshot, following: [.primary, .secondary, .tertiary])
-            }
             return snapshot.primary ?? snapshot.secondary
         }
 
@@ -83,43 +82,22 @@ enum MenuBarMetricWindowResolver {
     }
 
     private static func automaticWindow(provider: UsageProvider, snapshot: UsageSnapshot) -> RateWindow? {
-        if provider == .antigravity {
-            return self.mostConstrainedWindow(
-                primary: snapshot.primary,
-                secondary: snapshot.secondary,
-                tertiary: snapshot.tertiary)
-        }
-        if provider == .perplexity {
-            return snapshot.automaticPerplexityWindow()
-        }
-        if provider == .zai {
-            return self.mostConstrainedWindow(
-                primary: snapshot.primary,
-                secondary: snapshot.tertiary,
-                tertiary: nil) ?? snapshot.secondary
-        }
-        if provider == .factory || provider == .kimi {
-            return snapshot.secondary ?? snapshot.primary
-        }
-        if provider == .copilot,
-           let primary = snapshot.primary,
-           let secondary = snapshot.secondary
-        {
-            return primary.usedPercent >= secondary.usedPercent ? primary : secondary
-        }
-        if provider == .cursor || provider == .minimax {
-            return Self.mostConstrainedWindow(
-                primary: snapshot.primary,
-                secondary: snapshot.secondary,
-                tertiary: snapshot.tertiary)
-        }
         if provider == .claude,
-           Self.shouldUseClaudeSpendLimit(providerCost: snapshot.providerCost, snapshot: snapshot),
-           let extraUsage = Self.extraUsageWindow(snapshot: snapshot)
+           self.shouldUseClaudeSpendLimit(providerCost: snapshot.providerCost, snapshot: snapshot),
+           let extraUsage = extraUsageWindow(snapshot: snapshot)
         {
             return extraUsage
         }
         return snapshot.primary ?? snapshot.secondary
+    }
+
+    private static func requestedWindow(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot,
+        lanes: [Lane]) -> RateWindow?
+    {
+        _ = provider
+        return self.window(in: snapshot, following: lanes)
     }
 
     private static func window(in snapshot: UsageSnapshot, following lanes: [Lane]) -> RateWindow? {

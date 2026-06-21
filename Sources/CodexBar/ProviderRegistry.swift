@@ -74,12 +74,8 @@ struct ProviderRegistry {
                                     token: token)
                             }
                         },
-                        providerManualTokenUpdater: { provider, token in
-                            await MainActor.run {
-                                if provider == .stepfun {
-                                    settings.stepfunToken = token
-                                }
-                            }
+                        providerManualTokenUpdater: { _, _ in
+                            await MainActor.run {}
                         },
                         costUsageHistoryDays: settings.costUsageHistoryDays,
                         persistsCLISessions: true,
@@ -130,25 +126,11 @@ struct ProviderRegistry {
             provider: provider,
             settings: settings,
             override: tokenOverride)
-        var env = ProviderConfigEnvironment.applyProviderConfigOverrides(
+        var env = ProviderEnvironmentResolver.resolve(
             base: base,
             provider: provider,
-            config: settings.providerConfig(for: provider))
-        // If token account is selected, use its token instead of config's apiKey
-        if let account {
-            TokenAccountSupportCatalog.scrubEnvironmentForSelectedAccount(
-                &env,
-                provider: provider,
-                token: account.token)
-            if let override = TokenAccountSupportCatalog.envOverride(
-                for: provider,
-                token: account.token)
-            {
-                for (key, value) in override {
-                    env[key] = value
-                }
-            }
-        }
+            config: settings.providerConfig(for: provider),
+            selectedAccount: account)
         // Codex account routing scopes remote account fetches such as identity, plan,
         // quotas, and dashboard data. Token-cost/session history is intentionally handled
         // separately because it is provider-level local telemetry from this Mac's Codex sessions,
@@ -159,6 +141,8 @@ struct ProviderRegistry {
                 env = CodexHomeScope.scopedEnvironment(base: env, codexHome: managedHomePath)
             } else if let liveHomePath = settings.liveSystemCodexHomePath(forActiveSource: codexActiveSource) {
                 env = CodexHomeScope.scopedEnvironment(base: env, codexHome: liveHomePath)
+            } else if let profileHomePath = settings.profileCodexHomePath(forActiveSource: codexActiveSource) {
+                env = CodexHomeScope.scopedEnvironment(base: env, codexHome: profileHomePath)
             }
         }
         return env

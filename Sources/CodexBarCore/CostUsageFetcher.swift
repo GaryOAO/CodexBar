@@ -102,22 +102,30 @@ public struct CostUsageFetcher: Sendable {
         piScannerOptions overridePiScannerOptions: PiSessionCostScanner
             .Options? = nil) async throws -> CostUsageTokenSnapshot
     {
-        guard provider == .codex || provider == .claude || provider == .vertexai || provider == .bedrock else {
+        guard provider == .codex || provider == .claude else {
             throw CostUsageError.unsupportedProvider(provider)
+        }
+
+        // Claude cost takeover: when a proxy profile is active, the claude-oauth-proxy
+        // aggregates this key's usage across every machine. Prefer that cross-machine
+        // total over the per-machine local `~/.claude` log scan. Fall back to the local
+        // scan if the proxy is unreachable so the card never goes blank.
+        if provider == .claude, let proxy = ClaudeProxyProfileStore.effectiveProxy() {
+            do {
+                return try await ClaudeProxyUsageFetcher.loadProxyTokenSnapshot(
+                    baseURL: proxy.baseURL,
+                    token: proxy.token,
+                    historyDays: historyDays,
+                    now: now)
+            } catch {
+                // Proxy unreachable — degrade to the local scan below.
+            }
         }
 
         let until = now
         let clampedHistoryDays = max(1, min(365, historyDays))
         // Rolling window is inclusive, so a 30-day display starts 29 days before `now`.
         let since = Calendar.current.date(byAdding: .day, value: -(clampedHistoryDays - 1), to: now) ?? now
-
-        if provider == .bedrock {
-            let daily = try await Self.loadBedrockDailyReport(
-                environment: environment,
-                since: since,
-                until: until)
-            return Self.tokenSnapshot(from: daily, now: now, historyDays: clampedHistoryDays)
-        }
 
         var options = overrideScannerOptions ?? CostUsageScanner.Options()
         if provider == .codex,
@@ -138,9 +146,7 @@ public struct CostUsageFetcher: Sendable {
             }
         }
 
-        if provider == .vertexai {
-            options.claudeLogProviderFilter = allowVertexClaudeFallback ? .all : .vertexAIOnly
-        } else if provider == .claude {
+        if provider == .claude {
             options.claudeLogProviderFilter = .excludeVertexAI
         }
         if forceRefresh {
@@ -170,23 +176,6 @@ public struct CostUsageFetcher: Sendable {
                 options: scanOptions,
                 checkCancellation: checkCancellation)
             try checkCancellation()
-
-            if provider == .vertexai,
-               !allowVertexClaudeFallback,
-               scanOptions.claudeLogProviderFilter == .vertexAIOnly,
-               daily.data.isEmpty
-            {
-                var fallback = scanOptions
-                fallback.claudeLogProviderFilter = .all
-                daily = try CostUsageScanner.loadDailyReportCancellable(
-                    provider: provider,
-                    since: since,
-                    until: until,
-                    now: now,
-                    options: fallback,
-                    checkCancellation: checkCancellation)
-                try checkCancellation()
-            }
 
             if provider == .codex || provider == .claude {
                 let piReport = try PiSessionCostScanner.loadDailyReportCancellable(
@@ -260,37 +249,26 @@ public struct CostUsageFetcher: Sendable {
         return cachedSnapshot.flatMap(\.self)
     }
 
-    private static func loadBedrockDailyReport(
-        environment: [String: String],
-        since: Date,
-        until: Date) async throws -> CostUsageDailyReport
-    {
-        let resolved = try await BedrockCredentialResolver.resolve(environment: environment)
-        return try await BedrockUsageFetcher.fetchDailyReport(
-            credentials: resolved.credentials,
-            since: since,
-            until: until,
-            environment: environment)
-    }
-
     static func tokenSnapshot(
         from daily: CostUsageDailyReport,
         now: Date,
         historyDays: Int = 30) -> CostUsageTokenSnapshot
     {
         // Pick the most recent day; break ties by cost/tokens to keep a stable "session" row.
-        let currentDay = daily.data.max { lhs, rhs in
-            let lDate = CostUsageDateParser.parse(lhs.date) ?? .distantPast
-            let rDate = CostUsageDateParser.parse(rhs.date) ?? .distantPast
-            if lDate != rDate { return lDate < rDate }
-            let lCost = lhs.costUSD ?? -1
-            let rCost = rhs.costUSD ?? -1
-            if lCost != rCost { return lCost < rCost }
-            let lTokens = lhs.totalTokens ?? -1
-            let rTokens = rhs.totalTokens ?? -1
-            if lTokens != rTokens { return lTokens < rTokens }
-            return lhs.date < rhs.date
+        let currentDay = daily.data.compactMap { entry -> (entry: CostUsageDailyReport.Entry, date: Date)? in
+            guard let date = CostUsageDateParser.parse(entry.date) else { return nil }
+            return (entry, date)
         }
+        .max { lhs, rhs in
+            if lhs.date != rhs.date { return lhs.date < rhs.date }
+            let lCost = lhs.entry.costUSD ?? -1
+            let rCost = rhs.entry.costUSD ?? -1
+            if lCost != rCost { return lCost < rCost }
+            let lTokens = lhs.entry.totalTokens ?? -1
+            let rTokens = rhs.entry.totalTokens ?? -1
+            if lTokens != rTokens { return lTokens < rTokens }
+            return lhs.entry.date < rhs.entry.date
+        }?.entry
         // Prefer summary totals when present; fall back to summing daily entries.
         let totalFromSummary = daily.summary?.totalCostUSD
         let totalFromEntries = daily.data.compactMap(\.costUSD).reduce(0, +)

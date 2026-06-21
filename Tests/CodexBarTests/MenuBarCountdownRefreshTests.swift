@@ -34,10 +34,7 @@ struct MenuBarCountdownRefreshTests {
 
     @Test
     func `status item schedules countdown refresh only for countdown reset dates`() {
-        let settings = SettingsStore(
-            configStore: testConfigStore(suiteName: "MenuBarCountdownRefreshTests-scheduling"),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = SettingsStore(configStore: testConfigStore(suiteName: "MenuBarCountdownRefreshTests-scheduling"))
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.menuBarShowsBrandIconWithPercent = true

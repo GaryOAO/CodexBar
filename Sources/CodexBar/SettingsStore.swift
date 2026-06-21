@@ -42,9 +42,11 @@ enum MenuBarMetricPreference: String, CaseIterable, Identifiable {
     case automatic
     case primary
     case secondary
+    case primaryAndSecondary
     case tertiary
     case extraUsage
     case average
+    case monthlyPlan
 
     var id: String {
         self.rawValue
@@ -55,9 +57,11 @@ enum MenuBarMetricPreference: String, CaseIterable, Identifiable {
         case .automatic: L("metric_pref_automatic")
         case .primary: L("metric_pref_primary")
         case .secondary: L("metric_pref_secondary")
+        case .primaryAndSecondary: "\(L("metric_pref_primary")) + \(L("metric_pref_secondary"))"
         case .tertiary: L("metric_pref_tertiary")
         case .extraUsage: L("metric_pref_extra_usage")
         case .average: L("metric_pref_average")
+        case .monthlyPlan: L("metric_mistral_monthly_plan")
         }
     }
 }
@@ -228,35 +232,14 @@ final class SettingsStore {
     init(
         userDefaults: UserDefaults = .standard,
         configStore: CodexBarConfigStore = CodexBarConfigStore(),
-        zaiTokenStore: any ZaiTokenStoring = KeychainZaiTokenStore(),
-        syntheticTokenStore: any SyntheticTokenStoring = KeychainSyntheticTokenStore(),
         codexCookieStore: any CookieHeaderStoring = KeychainCookieHeaderStore(
             account: "codex-cookie",
             promptKind: .codexCookie),
         claudeCookieStore: any CookieHeaderStoring = KeychainCookieHeaderStore(
             account: "claude-cookie",
             promptKind: .claudeCookie),
-        cursorCookieStore: any CookieHeaderStoring = KeychainCookieHeaderStore(
-            account: "cursor-cookie",
-            promptKind: .cursorCookie),
-        opencodeCookieStore: any CookieHeaderStoring = KeychainCookieHeaderStore(
-            account: "opencode-cookie",
-            promptKind: .opencodeCookie),
-        factoryCookieStore: any CookieHeaderStoring = KeychainCookieHeaderStore(
-            account: "factory-cookie",
-            promptKind: .factoryCookie),
-        minimaxCookieStore: any MiniMaxCookieStoring = KeychainMiniMaxCookieStore(),
-        minimaxAPITokenStore: any MiniMaxAPITokenStoring = KeychainMiniMaxAPITokenStore(),
-        kimiTokenStore: any KimiTokenStoring = KeychainKimiTokenStore(),
-        kimiK2TokenStore: any KimiK2TokenStoring = KeychainKimiK2TokenStore(),
-        augmentCookieStore: any CookieHeaderStoring = KeychainCookieHeaderStore(
-            account: "augment-cookie",
-            promptKind: .augmentCookie),
-        ampCookieStore: any CookieHeaderStoring = KeychainCookieHeaderStore(
-            account: "amp-cookie",
-            promptKind: .ampCookie),
-        copilotTokenStore: any CopilotTokenStoring = KeychainCopilotTokenStore(),
-        tokenAccountStore: any ProviderTokenAccountStoring = FileTokenAccountStore())
+        tokenAccountStore: any ProviderTokenAccountStoring = FileTokenAccountStore(),
+        performInitialProviderDetection: Bool = !SettingsStore.isRunningTests)
     {
         let appGroupID = AppGroupSupport.currentGroupID()
         let appGroupMigration: AppGroupSupport.MigrationResult
@@ -287,20 +270,8 @@ final class SettingsStore {
         let hasStoredOpenAIWebAccessPreference = userDefaults.object(forKey: "openAIWebAccessEnabled") != nil
         let hadExistingConfig = (try? configStore.load()) != nil
         let legacyStores = CodexBarConfigMigrator.LegacyStores(
-            zaiTokenStore: zaiTokenStore,
-            syntheticTokenStore: syntheticTokenStore,
             codexCookieStore: codexCookieStore,
             claudeCookieStore: claudeCookieStore,
-            cursorCookieStore: cursorCookieStore,
-            opencodeCookieStore: opencodeCookieStore,
-            factoryCookieStore: factoryCookieStore,
-            minimaxCookieStore: minimaxCookieStore,
-            minimaxAPITokenStore: minimaxAPITokenStore,
-            kimiTokenStore: kimiTokenStore,
-            kimiK2TokenStore: kimiK2TokenStore,
-            augmentCookieStore: augmentCookieStore,
-            ampCookieStore: ampCookieStore,
-            copilotTokenStore: copilotTokenStore,
             tokenAccountStore: tokenAccountStore)
         let config = CodexBarConfigMigrator.loadOrMigrate(
             configStore: configStore,
@@ -320,8 +291,9 @@ final class SettingsStore {
         userDefaults.removeObject(forKey: "showCodexUsage")
         userDefaults.removeObject(forKey: "showClaudeUsage")
         LaunchAtLoginManager.setEnabled(self.launchAtLogin)
-        self.runInitialProviderDetectionIfNeeded()
-        self.ensureAlibabaProviderAutoEnabledIfNeeded()
+        if performInitialProviderDetection {
+            self.runInitialProviderDetectionIfNeeded()
+        }
         self.applyTokenCostDefaultIfNeeded()
         if self.claudeUsageDataSource != .cli {
             if Self.isRunningTests {
@@ -406,6 +378,7 @@ extension SettingsStore {
             forKey: "providerChangelogLinksEnabled") as? Bool ?? false
         let menuBarShowsBrandIconWithPercent = userDefaults.object(
             forKey: "menuBarShowsBrandIconWithPercent") as? Bool ?? false
+        let menuBarHidesCritters = userDefaults.object(forKey: "menuBarHidesCritters") as? Bool ?? false
         let menuBarDisplayModeRaw = userDefaults.string(forKey: "menuBarDisplayMode")
             ?? MenuBarDisplayMode.percent.rawValue
         let kiroMenuBarDisplayModeRaw = userDefaults.string(forKey: "kiroMenuBarDisplayMode")
@@ -446,6 +419,8 @@ extension SettingsStore {
             forKey: "mergedOverviewSelectedProviders") as? [String] ?? []
         let selectedMenuProviderRaw = userDefaults.string(forKey: "selectedMenuProvider")
         let providerDetectionCompleted = userDefaults.object(forKey: "providerDetectionCompleted") as? Bool ?? false
+        let providersSortedAlphabetically = userDefaults.object(
+            forKey: "providersSortedAlphabetically") as? Bool ?? false
         let appLanguageRaw = userDefaults.string(forKey: "appLanguage")
         let petDefaults = Self.loadPetDefaults(userDefaults: userDefaults)
 
@@ -473,6 +448,7 @@ extension SettingsStore {
             resetTimesShowAbsolute: resetTimesShowAbsolute,
             providerChangelogLinksEnabled: providerChangelogLinksEnabled,
             menuBarShowsBrandIconWithPercent: menuBarShowsBrandIconWithPercent,
+            menuBarHidesCritters: menuBarHidesCritters,
             menuBarDisplayModeRaw: menuBarDisplayModeRaw,
             kiroMenuBarDisplayModeRaw: kiroMenuBarDisplayModeRaw,
             historicalTrackingEnabled: historicalTrackingEnabled,
@@ -500,6 +476,7 @@ extension SettingsStore {
             mergedOverviewSelectedProvidersRaw: mergedOverviewSelectedProvidersRaw,
             selectedMenuProviderRaw: selectedMenuProviderRaw,
             providerDetectionCompleted: providerDetectionCompleted,
+            providersSortedAlphabetically: providersSortedAlphabetically,
             appLanguageRaw: appLanguageRaw,
             petEnabled: petDefaults.petEnabled,
             petPushIntervalSeconds: petDefaults.petPushIntervalSeconds,
@@ -573,13 +550,16 @@ extension SettingsStore {
 
     private static func loadMenuBarMetricPreferences(userDefaults: UserDefaults) -> [String: String] {
         let storedPreferences = userDefaults.dictionary(forKey: "menuBarMetricPreferences") as? [String: String] ?? [:]
-        if !storedPreferences.isEmpty {
-            return storedPreferences
+        return if !storedPreferences.isEmpty {
+            storedPreferences
+        } else if let menuBarMetricRaw = userDefaults.string(forKey: "menuBarMetricPreference"),
+                  let legacyPreference = MenuBarMetricPreference(rawValue: menuBarMetricRaw)
+        {
+            Dictionary(
+                uniqueKeysWithValues: UsageProvider.allCases.map { ($0.rawValue, legacyPreference.rawValue) })
+        } else {
+            [:]
         }
-        guard let menuBarMetricRaw = userDefaults.string(forKey: "menuBarMetricPreference"),
-              let legacyPreference = MenuBarMetricPreference(rawValue: menuBarMetricRaw)
-        else { return [:] }
-        return Dictionary(uniqueKeysWithValues: UsageProvider.allCases.map { ($0.rawValue, legacyPreference.rawValue) })
     }
 
     private static func loadMultiAccountMenuLayoutRaw(userDefaults: UserDefaults) -> String {
@@ -591,7 +571,7 @@ extension SettingsStore {
     }
 
     private static func loadCopilotIconSecondaryWindowIDRaw(userDefaults: UserDefaults) -> String {
-        userDefaults.string(forKey: "copilotIconSecondaryWindowID") ?? CopilotIconSecondaryWindowSelection.chat
+        userDefaults.string(forKey: "copilotIconSecondaryWindowID") ?? "chat"
     }
 
     private static func loadDebugDisableKeychainAccess(userDefaults: UserDefaults) -> Bool {
@@ -747,17 +727,6 @@ extension SettingsStore {
         if ordered.isEmpty {
             ordered = UsageProvider.allCases
             seen = Set(ordered)
-        }
-
-        if !seen.contains(.factory), let zaiIndex = ordered.firstIndex(of: .zai) {
-            ordered.insert(.factory, at: zaiIndex)
-            seen.insert(.factory)
-        }
-
-        if !seen.contains(.minimax), let zaiIndex = ordered.firstIndex(of: .zai) {
-            let insertIndex = ordered.index(after: zaiIndex)
-            ordered.insert(.minimax, at: insertIndex)
-            seen.insert(.minimax)
         }
 
         for provider in UsageProvider.allCases where !seen.contains(provider) {

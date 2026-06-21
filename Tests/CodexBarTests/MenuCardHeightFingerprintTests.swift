@@ -59,7 +59,6 @@ struct MenuCardHeightFingerprintTests {
                     paceOnTop: true),
             ],
             usageNotes: ["Secret note"],
-            openAIAPIUsage: nil,
             inlineUsageDashboard: nil,
             creditsText: nil,
             creditsRemaining: nil,

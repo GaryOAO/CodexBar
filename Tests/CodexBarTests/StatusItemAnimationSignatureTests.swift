@@ -4,38 +4,24 @@ import Testing
 @testable import CodexBar
 
 @MainActor
+@Suite(.serialized)
 struct StatusItemAnimationSignatureTests {
-    private func makeStatusBarForTesting() -> NSStatusBar {
-        let env = ProcessInfo.processInfo.environment
-        if env["GITHUB_ACTIONS"] == "true" || env["CI"] == "true" {
-            return .system
-        }
-        return NSStatusBar()
-    }
-
     @Test
-    func `merged render signature changes when unified icon style changes`() throws {
+    func `merged render signature changes when unified icon style changes`() {
         let suite = "StatusItemAnimationSignatureTests-merged-style-signature"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = testSettingsStore(suiteName: suite)
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.mergeIcons = true
         settings.selectedMenuProvider = .codex
         settings.menuBarShowsBrandIconWithPercent = false
-        settings.syntheticAPIToken = "synthetic-test-token"
 
         let registry = ProviderRegistry.shared
         if let codexMeta = registry.metadata[.codex] {
             settings.setProviderEnabled(provider: .codex, metadata: codexMeta, enabled: true)
         }
-        if let syntheticMeta = registry.metadata[.synthetic] {
-            settings.setProviderEnabled(provider: .synthetic, metadata: syntheticMeta, enabled: true)
+        if let claudeMeta = registry.metadata[.claude] {
+            settings.setProviderEnabled(provider: .claude, metadata: claudeMeta, enabled: true)
         }
 
         let fetcher = UsageFetcher()
@@ -46,7 +32,8 @@ struct StatusItemAnimationSignatureTests {
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
+        defer { controller.releaseStatusItemsForTesting() }
 
         store._setSnapshotForTesting(
             UsageSnapshot(
@@ -55,14 +42,14 @@ struct StatusItemAnimationSignatureTests {
                 updatedAt: Date()),
             provider: .codex)
 
-        #expect(store.enabledProvidersForDisplay() == [.codex, .synthetic])
-        #expect(store.enabledProviders() == [.codex, .synthetic])
+        #expect(store.enabledProvidersForDisplay() == [.codex, .claude])
+        #expect(store.enabledProviders() == [.codex, .claude])
         #expect(store.iconStyle == .combined)
         controller.applyIcon(phase: nil)
         let combinedSignature = controller.lastAppliedMergedIconRenderSignature
 
-        if let syntheticMeta = registry.metadata[.synthetic] {
-            settings.setProviderEnabled(provider: .synthetic, metadata: syntheticMeta, enabled: false)
+        if let claudeMeta = registry.metadata[.claude] {
+            settings.setProviderEnabled(provider: .claude, metadata: claudeMeta, enabled: false)
         }
 
         #expect(store.enabledProvidersForDisplay() == [.codex])
@@ -80,14 +67,7 @@ struct StatusItemAnimationSignatureTests {
     @Test
     func `merged brand percent reapplies title when cached render is skipped`() throws {
         let suite = "StatusItemAnimationSignatureTests-merged-brand-percent-title-restore"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = testSettingsStore(suiteName: suite)
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.mergeIcons = true
@@ -95,14 +75,13 @@ struct StatusItemAnimationSignatureTests {
         settings.menuBarShowsBrandIconWithPercent = true
         settings.menuBarDisplayMode = .percent
         settings.usageBarsShowUsed = false
-        settings.syntheticAPIToken = "synthetic-test-token"
 
         let registry = ProviderRegistry.shared
         if let codexMeta = registry.metadata[.codex] {
             settings.setProviderEnabled(provider: .codex, metadata: codexMeta, enabled: true)
         }
-        if let syntheticMeta = registry.metadata[.synthetic] {
-            settings.setProviderEnabled(provider: .synthetic, metadata: syntheticMeta, enabled: true)
+        if let claudeMeta = registry.metadata[.claude] {
+            settings.setProviderEnabled(provider: .claude, metadata: claudeMeta, enabled: true)
         }
 
         let fetcher = UsageFetcher()
@@ -113,7 +92,8 @@ struct StatusItemAnimationSignatureTests {
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
+        defer { controller.releaseStatusItemsForTesting() }
 
         let snapshot = UsageSnapshot(
             primary: RateWindow(usedPercent: 23, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
@@ -141,20 +121,12 @@ struct StatusItemAnimationSignatureTests {
     @Test
     func `merged icon render defers while merged menu is tracking`() async throws {
         let suite = "StatusItemAnimationSignatureTests-merged-icon-defers-during-tracking"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = testSettingsStore(suiteName: suite)
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.mergeIcons = true
         settings.selectedMenuProvider = .codex
         settings.menuBarShowsBrandIconWithPercent = false
-        settings.syntheticAPIToken = "synthetic-test-token"
 
         let registry = ProviderRegistry.shared
         for provider in UsageProvider.allCases {
@@ -162,7 +134,7 @@ struct StatusItemAnimationSignatureTests {
             settings.setProviderEnabled(
                 provider: provider,
                 metadata: metadata,
-                enabled: provider == .codex || provider == .synthetic)
+                enabled: provider == .codex || provider == .claude)
         }
 
         let fetcher = UsageFetcher()
@@ -173,7 +145,7 @@ struct StatusItemAnimationSignatureTests {
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
         defer { controller.releaseStatusItemsForTesting() }
         controller.menuRefreshEnabledOverrideForTesting = true
 
@@ -189,9 +161,7 @@ struct StatusItemAnimationSignatureTests {
         }
 
         store._setSnapshotForTesting(snapshot(usedPercent: 20), provider: .codex)
-        for _ in 0..<10 where controller.animationDriver != nil {
-            await Task.yield()
-        }
+        controller.updateIcons()
         #expect(controller.animationDriver == nil)
         controller.applyIcon(phase: nil)
         let initialSignature = try #require(controller.lastAppliedMergedIconRenderSignature)
@@ -203,16 +173,12 @@ struct StatusItemAnimationSignatureTests {
         #expect(controller.isMergedMenuOpen)
 
         store._setSnapshotForTesting(nil, provider: .codex)
-        for _ in 0..<10 where controller.animationDriver == nil {
-            await Task.yield()
-        }
+        controller.updateIcons()
         #expect(controller.animationDriver != nil)
         #expect(controller.deferredMergedIconRenderAfterTracking)
 
         store._setSnapshotForTesting(snapshot(usedPercent: 80), provider: .codex)
-        for _ in 0..<10 where controller.animationDriver != nil {
-            await Task.yield()
-        }
+        controller.updateIcons()
         #expect(controller.animationDriver == nil)
         #expect(controller.deferredMergedIconRenderAfterTracking)
         #expect(controller.lastAppliedMergedIconRenderSignature == initialSignature)
@@ -231,13 +197,13 @@ struct StatusItemAnimationSignatureTests {
         #expect(controller.lastAppliedMergedIconRenderSignature?.contains("warningFlash=0") == true)
 
         controller.menuWillOpen(menu)
-        settings.selectedMenuProvider = .synthetic
-        #expect(controller.primaryProviderForUnifiedIcon() == .synthetic)
+        settings.selectedMenuProvider = .claude
+        #expect(controller.primaryProviderForUnifiedIcon() == .claude)
         #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=codex") == true)
 
         controller.startQuotaWarningFlash(provider: .codex)
         let switchedProviderWarningTask = controller.quotaWarningFlashTasks[.codex]
-        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=synthetic") == true)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=claude") == true)
         controller.clearExpiredQuotaWarningFlash(provider: .codex, now: .distantFuture)
         switchedProviderWarningTask?.cancel()
         controller.menuDidClose(menu)
@@ -264,75 +230,16 @@ struct StatusItemAnimationSignatureTests {
     }
 
     @Test
-    func `merged fallback provider follows enabled provider order`() throws {
+    func `merged fallback provider follows enabled provider order`() {
         let suite = "StatusItemAnimationSignatureTests-merged-provider-order"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = testSettingsStore(suiteName: suite)
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.mergeIcons = true
         settings.menuBarShowsBrandIconWithPercent = false
-        settings.syntheticAPIToken = "synthetic-test-token"
-        settings.setProviderOrder([.synthetic, .codex])
+        settings.setProviderOrder([.claude, .codex])
 
         let registry = ProviderRegistry.shared
-        if let codexMeta = registry.metadata[.codex] {
-            settings.setProviderEnabled(provider: .codex, metadata: codexMeta, enabled: true)
-        }
-        if let syntheticMeta = registry.metadata[.synthetic] {
-            settings.setProviderEnabled(provider: .synthetic, metadata: syntheticMeta, enabled: true)
-        }
-
-        let fetcher = UsageFetcher()
-        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
-        let controller = StatusItemController(
-            store: store,
-            settings: settings,
-            account: fetcher.loadAccountInfo(),
-            updater: DisabledUpdaterController(),
-            preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
-
-        let snapshot = UsageSnapshot(
-            primary: RateWindow(usedPercent: 50, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            secondary: nil,
-            updatedAt: Date())
-        store._setSnapshotForTesting(snapshot, provider: .codex)
-        store._setSnapshotForTesting(snapshot, provider: .synthetic)
-
-        controller.applyIcon(phase: nil)
-
-        #expect(store.enabledProviders().prefix(2) == [.synthetic, .codex])
-        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=synthetic") == true)
-    }
-
-    @Test
-    func `merged icon follows overview provider order when first overview provider is loading`() {
-        let suite = "StatusItemAnimationSignatureTests-merged-overview-provider-order"
-        let defaults = UserDefaults(suiteName: suite)
-        defaults?.removePersistentDomain(forName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults ?? .standard,
-            configStore: testConfigStore(suiteName: "StatusItemAnimationSignatureTests-merged-overview-provider-order"),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
-        settings.statusChecksEnabled = false
-        settings.refreshFrequency = .manual
-        settings.mergeIcons = true
-        settings.selectedMenuProvider = .codex
-        settings.mergedMenuLastSelectedWasOverview = true
-        settings.menuBarShowsBrandIconWithPercent = false
-        settings.setProviderOrder([.cursor, .codex, .claude])
-
-        let registry = ProviderRegistry.shared
-        if let cursorMeta = registry.metadata[.cursor] {
-            settings.setProviderEnabled(provider: .cursor, metadata: cursorMeta, enabled: true)
-        }
         if let codexMeta = registry.metadata[.codex] {
             settings.setProviderEnabled(provider: .codex, metadata: codexMeta, enabled: true)
         }
@@ -348,7 +255,8 @@ struct StatusItemAnimationSignatureTests {
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
+        defer { controller.releaseStatusItemsForTesting() }
 
         let snapshot = UsageSnapshot(
             primary: RateWindow(usedPercent: 50, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
@@ -357,28 +265,117 @@ struct StatusItemAnimationSignatureTests {
         store._setSnapshotForTesting(snapshot, provider: .codex)
         store._setSnapshotForTesting(snapshot, provider: .claude)
 
-        #expect(store.enabledProvidersForDisplay().prefix(3) == [.cursor, .codex, .claude])
+        controller.applyIcon(phase: nil)
+
+        #expect(store.enabledProviders().prefix(2) == [.claude, .codex])
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=claude") == true)
+    }
+
+    @Test
+    func `merged icon status indicator follows rendered provider`() throws {
+        let suite = "StatusItemAnimationSignatureTests-merged-status-provider-scope"
+        let settings = testSettingsStore(suiteName: suite)
+        settings.statusChecksEnabled = true
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = true
+        settings.selectedMenuProvider = .codex
+        settings.menuBarShowsBrandIconWithPercent = false
+
+        let registry = ProviderRegistry.shared
+        let codexMeta = try #require(registry.metadata[.codex])
+        let claudeMeta = try #require(registry.metadata[.claude])
+        settings.setProviderEnabled(provider: .codex, metadata: codexMeta, enabled: true)
+        settings.setProviderEnabled(provider: .claude, metadata: claudeMeta, enabled: true)
+
+        let fetcher = UsageFetcher()
+        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: testStatusBar())
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 50, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
+            secondary: nil,
+            updatedAt: Date())
+        store._setSnapshotForTesting(snapshot, provider: .codex)
+        store._setSnapshotForTesting(snapshot, provider: .claude)
+        store.statuses[.claude] = ProviderStatus(
+            indicator: .major,
+            description: "Claude status issue",
+            updatedAt: Date(timeIntervalSince1970: 20))
+
+        controller.applyIcon(phase: nil)
+
+        #expect(controller.primaryProviderForUnifiedIcon() == .codex)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=codex") == true)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("status=none") == true)
+
+        settings.selectedMenuProvider = .claude
+        controller.applyIcon(phase: nil)
+
+        #expect(controller.primaryProviderForUnifiedIcon() == .claude)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=claude") == true)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("status=major") == true)
+    }
+
+    @Test
+    func `merged icon follows overview provider order when first overview provider is loading`() {
+        let suite = "StatusItemAnimationSignatureTests-merged-overview-provider-order"
+        let settings = testSettingsStore(suiteName: suite)
+        settings.statusChecksEnabled = false
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = true
+        settings.selectedMenuProvider = .codex
+        settings.mergedMenuLastSelectedWasOverview = true
+        settings.menuBarShowsBrandIconWithPercent = false
+        settings.setProviderOrder([.claude, .codex])
+
+        let registry = ProviderRegistry.shared
+        if let claudeMeta = registry.metadata[.claude] {
+            settings.setProviderEnabled(provider: .claude, metadata: claudeMeta, enabled: true)
+        }
+        if let codexMeta = registry.metadata[.codex] {
+            settings.setProviderEnabled(provider: .codex, metadata: codexMeta, enabled: true)
+        }
+
+        let fetcher = UsageFetcher()
+        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: testStatusBar())
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 50, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
+            secondary: nil,
+            updatedAt: Date())
+        // First overview provider (claude) is still loading — only codex has a snapshot.
+        store._setSnapshotForTesting(snapshot, provider: .codex)
+
+        #expect(store.enabledProvidersForDisplay().prefix(2) == [.claude, .codex])
         #expect(settings.resolvedMergedOverviewProviders(activeProviders: store.enabledProvidersForDisplay()) == [
-            .cursor,
-            .codex,
             .claude,
+            .codex,
         ])
 
         controller.applyIcon(phase: nil)
 
-        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=cursor") == true)
+        #expect(controller.lastAppliedMergedIconRenderSignature?.contains("provider=claude") == true)
     }
 
     @Test
-    func `split provider icon skips unchanged render signature`() throws {
+    func `split provider icon skips unchanged render signature`() {
         let suite = "StatusItemAnimationSignatureTests-split-provider-signature"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = testSettingsStore(suiteName: suite)
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.mergeIcons = false
@@ -396,7 +393,8 @@ struct StatusItemAnimationSignatureTests {
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
+        defer { controller.releaseStatusItemsForTesting() }
 
         store._setSnapshotForTesting(
             UsageSnapshot(

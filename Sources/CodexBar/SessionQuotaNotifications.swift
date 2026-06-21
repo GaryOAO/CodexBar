@@ -129,6 +129,24 @@ enum QuotaWarningNotificationLogic {
 }
 
 @MainActor
+extension UsageStore {
+    func sessionQuotaWindow(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot) -> (window: RateWindow, source: SessionQuotaWindowSource)?
+    {
+        if let primary = snapshot.primary, Self.isSessionWindow(primary) {
+            return (primary, .primary)
+        }
+        return nil
+    }
+
+    private static func isSessionWindow(_ window: RateWindow) -> Bool {
+        guard let minutes = window.windowMinutes else { return true }
+        return minutes <= 6 * 60
+    }
+}
+
+@MainActor
 protocol SessionQuotaNotifying: AnyObject {
     func post(transition: SessionQuotaTransition, provider: UsageProvider, badge: NSNumber?)
     func postQuotaWarning(event: QuotaWarningEvent, provider: UsageProvider, soundEnabled: Bool)

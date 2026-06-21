@@ -68,9 +68,6 @@ extension SettingsStore {
             activeIndex: accounts.count)
         self.updateProviderConfig(provider: provider) { entry in
             entry.tokenAccounts = updated
-            if provider == .copilot {
-                entry.apiKey = nil
-            }
         }
         self.applyTokenAccountCookieSourceIfNeeded(provider: provider)
         CodexBarLog.logger(LogCategories.tokenAccounts).info(
@@ -128,9 +125,6 @@ extension SettingsStore {
             activeIndex: data.clampedActiveIndex())
         self.updateProviderConfig(provider: provider) { entry in
             entry.tokenAccounts = updated
-            if provider == .copilot {
-                entry.apiKey = nil
-            }
         }
         self.applyTokenAccountCookieSourceIfNeeded(provider: provider)
         CodexBarLog.logger(LogCategories.tokenAccounts).info(
@@ -161,9 +155,6 @@ extension SettingsStore {
                     version: data.version,
                     accounts: filtered,
                     activeIndex: nextActiveIndex)
-            }
-            if provider == .copilot {
-                entry.apiKey = nil
             }
         }
         CodexBarLog.logger(LogCategories.tokenAccounts).info(

@@ -91,7 +91,6 @@ final class ResetTimeBackfillTests: XCTestCase {
                 nextRegenPercent: 7),
             secondary: nil,
             extraRateWindows: [extra],
-            cursorRequests: CursorRequestUsage(used: 10, limit: 50),
             subscriptionExpiresAt: reset.addingTimeInterval(86400),
             subscriptionRenewsAt: reset.addingTimeInterval(43200),
             updatedAt: now,
@@ -104,7 +103,6 @@ final class ResetTimeBackfillTests: XCTestCase {
         XCTAssertEqual(result.primary?.nextRegenPercent, 7)
         XCTAssertEqual(result.extraRateWindows?.first?.id, "overflow")
         XCTAssertEqual(result.extraRateWindows?.first?.window.nextRegenPercent, 2)
-        XCTAssertEqual(result.cursorRequests?.used, 10)
         XCTAssertEqual(result.subscriptionExpiresAt, reset.addingTimeInterval(86400))
         XCTAssertEqual(result.subscriptionRenewsAt, reset.addingTimeInterval(43200))
         XCTAssertEqual(result.identity?.accountEmail, "peter@example.com")

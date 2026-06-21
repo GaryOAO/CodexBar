@@ -21,86 +21,6 @@ final class InMemoryCookieHeaderStore: CookieHeaderStoring, @unchecked Sendable 
     }
 }
 
-final class InMemoryMiniMaxCookieStore: MiniMaxCookieStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadCookieHeader() throws -> String? {
-        self.value
-    }
-
-    func storeCookieHeader(_ header: String?) throws {
-        self.value = header
-    }
-}
-
-final class InMemoryMiniMaxAPITokenStore: MiniMaxAPITokenStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadToken() throws -> String? {
-        self.value
-    }
-
-    func storeToken(_ token: String?) throws {
-        self.value = token
-    }
-}
-
-final class InMemoryKimiTokenStore: KimiTokenStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadToken() throws -> String? {
-        self.value
-    }
-
-    func storeToken(_ token: String?) throws {
-        self.value = token
-    }
-}
-
-final class InMemoryKimiK2TokenStore: KimiK2TokenStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadToken() throws -> String? {
-        self.value
-    }
-
-    func storeToken(_ token: String?) throws {
-        self.value = token
-    }
-}
-
-final class InMemoryCopilotTokenStore: CopilotTokenStoring, @unchecked Sendable {
-    var value: String?
-
-    init(value: String? = nil) {
-        self.value = value
-    }
-
-    func loadToken() throws -> String? {
-        self.value
-    }
-
-    func storeToken(_ token: String?) throws {
-        self.value = token
-    }
-}
-
 final class InMemoryTokenAccountStore: ProviderTokenAccountStoring, @unchecked Sendable {
     var accounts: [UsageProvider: ProviderTokenAccountData] = [:]
     private let fileURL: URL
@@ -136,7 +56,31 @@ func testConfigStore(suiteName: String, reset: Bool = true) -> CodexBarConfigSto
     return CodexBarConfigStore(fileURL: url)
 }
 
+@MainActor
+func testSettingsStore(
+    suiteName: String,
+    tokenAccountStore: any ProviderTokenAccountStoring = InMemoryTokenAccountStore()) -> SettingsStore
+{
+    let isolatedSuiteName = "\(suiteName)-\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: isolatedSuiteName) else {
+        preconditionFailure("Could not create test defaults suite")
+    }
+    defaults.removePersistentDomain(forName: isolatedSuiteName)
+    return SettingsStore(
+        userDefaults: defaults,
+        configStore: testConfigStore(suiteName: isolatedSuiteName),
+        codexCookieStore: InMemoryCookieHeaderStore(),
+        claudeCookieStore: InMemoryCookieHeaderStore(),
+        tokenAccountStore: tokenAccountStore)
+}
+
 #if os(macOS)
+@MainActor
+func testStatusBar() -> NSStatusBar {
+    // Standalone NSStatusBar instances can crash during swiftpm-testing-helper teardown.
+    .system
+}
+
 @MainActor
 @discardableResult
 func withStatusItemControllerForTesting<T>(

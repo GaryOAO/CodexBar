@@ -1,8 +1,6 @@
 import CodexBarCore
-import CodexBarMacroSupport
 import SwiftUI
 
-@ProviderImplementationRegistration
 struct ClaudeProviderImplementation: ProviderImplementation {
     let id: UsageProvider = .claude
     let supportsLoginFlow: Bool = true
@@ -88,6 +86,7 @@ struct ClaudeProviderImplementation: ProviderImplementation {
                 statusText: nil,
                 actions: [],
                 isVisible: nil,
+                isEnabled: { !context.settings.debugDisableKeychainAccess },
                 onChange: nil,
                 onAppDidBecomeActive: nil,
                 onAppearWhenEnabled: nil),

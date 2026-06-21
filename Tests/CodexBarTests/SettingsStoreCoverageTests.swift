@@ -12,9 +12,8 @@ struct SettingsStoreCoverageTests {
         defaults.removePersistentDomain(forName: suite)
         let configStore = testConfigStore(suiteName: suite)
         let config = CodexBarConfig(providers: [
-            ProviderConfig(id: .zai),
-            ProviderConfig(id: .codex),
             ProviderConfig(id: .claude),
+            ProviderConfig(id: .codex),
         ])
         try configStore.save(config)
         let settings = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
@@ -22,8 +21,8 @@ struct SettingsStoreCoverageTests {
         let cached = settings.orderedProviders()
 
         #expect(ordered == cached)
-        #expect(ordered.first == .zai)
-        #expect(ordered.contains(.minimax))
+        #expect(ordered.first == .claude)
+        #expect(ordered.contains(.codex))
 
         settings.moveProvider(fromOffsets: IndexSet(integer: 0), toOffset: 2)
         #expect(settings.orderedProviders() != ordered)
@@ -57,12 +56,8 @@ struct SettingsStoreCoverageTests {
         settings.setMenuBarMetricPreference(.average, for: .codex)
         #expect(settings.menuBarMetricPreference(for: .codex) == .automatic)
 
-        settings.setMenuBarMetricPreference(.average, for: .gemini)
-        #expect(settings.menuBarMetricPreference(for: .gemini) == .average)
-        #expect(settings.menuBarMetricSupportsAverage(for: .gemini))
-
-        settings.setMenuBarMetricPreference(.secondary, for: .zai)
-        #expect(settings.menuBarMetricPreference(for: .zai) == .secondary)
+        settings.setMenuBarMetricPreference(.primaryAndSecondary, for: .codex)
+        #expect(settings.menuBarMetricPreference(for: .codex) == .primaryAndSecondary)
 
         settings.menuBarDisplayMode = .pace
         #expect(settings.menuBarDisplayMode == .pace)
@@ -72,49 +67,6 @@ struct SettingsStoreCoverageTests {
 
         settings.resetTimesShowAbsolute = true
         #expect(settings.resetTimeDisplayStyle == .absolute)
-    }
-
-    @Test
-    func `minimax settings snapshot uses selected token account as manual cookie`() {
-        let settings = Self.makeSettingsStore(suiteName: "SettingsStoreCoverageTests-minimax-token-account")
-        settings.minimaxCookieSource = .auto
-        settings.minimaxCookieHeader = "HERTZ-SESSION=global"
-        settings.addTokenAccount(provider: .minimax, label: "account", token: "HERTZ-SESSION=selected")
-
-        let snapshot = settings.minimaxSettingsSnapshot(tokenOverride: nil)
-
-        #expect(snapshot.cookieSource == .manual)
-        #expect(snapshot.manualCookieHeader == "HERTZ-SESSION=selected")
-    }
-
-    @Test
-    func `minimax settings snapshot falls back to global cookie without token accounts`() {
-        let settings = Self.makeSettingsStore(suiteName: "SettingsStoreCoverageTests-minimax-global-cookie")
-        settings.minimaxCookieSource = .auto
-        settings.minimaxCookieHeader = "HERTZ-SESSION=global"
-
-        let snapshot = settings.minimaxSettingsSnapshot(tokenOverride: nil)
-
-        #expect(snapshot.cookieSource == .auto)
-        #expect(snapshot.manualCookieHeader == "HERTZ-SESSION=global")
-    }
-
-    @Test
-    func `copilot budget extras default off and persist in provider snapshot`() throws {
-        let suite = "SettingsStoreCoverageTests-copilot-budget-extras"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        let configStore = testConfigStore(suiteName: suite)
-
-        let initial = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
-        #expect(initial.copilotBudgetExtrasEnabled == false)
-        #expect(initial.copilotSettingsSnapshot(tokenOverride: nil).budgetExtrasEnabled == false)
-
-        initial.copilotBudgetExtrasEnabled = true
-
-        let reloaded = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
-        #expect(reloaded.copilotBudgetExtrasEnabled)
-        #expect(reloaded.copilotSettingsSnapshot(tokenOverride: nil).budgetExtrasEnabled)
     }
 
     @Test
@@ -176,95 +128,41 @@ struct SettingsStoreCoverageTests {
     func `token account update preserves identity and selection`() throws {
         let settings = Self.makeSettingsStore()
 
-        settings.addTokenAccount(provider: .copilot, label: "Primary", token: "token-1")
-        settings.addTokenAccount(provider: .copilot, label: "Secondary", token: "token-2")
-        settings.setActiveTokenAccountIndex(0, for: .copilot)
+        settings.addTokenAccount(provider: .claude, label: "Primary", token: "token-1")
+        settings.addTokenAccount(provider: .claude, label: "Secondary", token: "token-2")
+        settings.setActiveTokenAccountIndex(0, for: .claude)
 
-        let original = try #require(settings.selectedTokenAccount(for: .copilot))
+        let original = try #require(settings.selectedTokenAccount(for: .claude))
         settings.updateTokenAccount(
-            provider: .copilot,
+            provider: .claude,
             accountID: original.id,
             label: "Primary (Pro)",
             token: "token-1b")
 
-        let updated = try #require(settings.selectedTokenAccount(for: .copilot))
+        let updated = try #require(settings.selectedTokenAccount(for: .claude))
         #expect(updated.id == original.id)
         #expect(updated.label == "Primary (Pro)")
         #expect(updated.token == "token-1b")
-        #expect(settings.tokenAccounts(for: .copilot).count == 2)
-    }
-
-    @Test
-    func `copilot token accounts clear legacy api key fallback`() throws {
-        let settings = Self.makeSettingsStore()
-        settings.copilotAPIToken = "legacy-token"
-
-        settings.addTokenAccount(provider: .copilot, label: "Primary", token: "token-1")
-
-        #expect(settings.copilotAPIToken.isEmpty)
-        #expect(settings.copilotSettingsSnapshot(tokenOverride: nil).apiToken == "token-1")
-
-        settings.copilotAPIToken = "legacy-token"
-        let account = try #require(settings.selectedTokenAccount(for: .copilot))
-        settings.removeTokenAccount(provider: .copilot, accountID: account.id)
-
-        #expect(settings.tokenAccounts(for: .copilot).isEmpty)
-        #expect(settings.copilotAPIToken.isEmpty)
-        #expect(settings.copilotSettingsSnapshot(tokenOverride: nil).apiToken == nil)
-    }
-
-    @Test
-    func `copilot settings snapshot carries selected account identifier`() {
-        let settings = Self.makeSettingsStore()
-        settings.addTokenAccount(
-            provider: .copilot,
-            label: "octocat (Pro)",
-            token: "token-1",
-            externalIdentifier: "github:user:123")
-
-        let snapshot = settings.copilotSettingsSnapshot(tokenOverride: nil)
-
-        #expect(snapshot.apiToken == "token-1")
-        #expect(snapshot.selectedAccountExternalIdentifier == "github:user:123")
-    }
-
-    @Test
-    func `copilot enterprise host persists in provider config`() throws {
-        let suite = "SettingsStoreCoverageTests-copilot-enterprise-host"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        let configStore = testConfigStore(suiteName: suite)
-        let first = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
-
-        first.copilotEnterpriseHost = "https://octocorp.ghe.com/login"
-        #expect(first.copilotEnterpriseHost == "https://octocorp.ghe.com/login")
-        #expect(first.copilotSettingsSnapshot(tokenOverride: nil).enterpriseHost == "octocorp.ghe.com")
-
-        let second = Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
-        #expect(second.copilotEnterpriseHost == "https://octocorp.ghe.com/login")
-
-        second.copilotEnterpriseHost = "github.com"
-        #expect(second.copilotEnterpriseHost == "github.com")
-        #expect(second.copilotSettingsSnapshot(tokenOverride: nil).enterpriseHost == nil)
+        #expect(settings.tokenAccounts(for: .claude).count == 2)
     }
 
     @Test
     func `removing another token account preserves active selection`() throws {
         let settings = Self.makeSettingsStore()
 
-        settings.addTokenAccount(provider: .copilot, label: "A", token: "token-a")
-        settings.addTokenAccount(provider: .copilot, label: "B", token: "token-b")
-        settings.addTokenAccount(provider: .copilot, label: "C", token: "token-c")
-        settings.setActiveTokenAccountIndex(1, for: .copilot)
+        settings.addTokenAccount(provider: .claude, label: "A", token: "token-a")
+        settings.addTokenAccount(provider: .claude, label: "B", token: "token-b")
+        settings.addTokenAccount(provider: .claude, label: "C", token: "token-c")
+        settings.setActiveTokenAccountIndex(1, for: .claude)
 
-        let activeBefore = try #require(settings.selectedTokenAccount(for: .copilot))
-        let accountToRemove = try #require(settings.tokenAccounts(for: .copilot).first)
-        settings.removeTokenAccount(provider: .copilot, accountID: accountToRemove.id)
+        let activeBefore = try #require(settings.selectedTokenAccount(for: .claude))
+        let accountToRemove = try #require(settings.tokenAccounts(for: .claude).first)
+        settings.removeTokenAccount(provider: .claude, accountID: accountToRemove.id)
 
-        let activeAfter = try #require(settings.selectedTokenAccount(for: .copilot))
+        let activeAfter = try #require(settings.selectedTokenAccount(for: .claude))
         #expect(activeAfter.id == activeBefore.id)
         #expect(activeAfter.label == "B")
-        #expect(settings.tokenAccounts(for: .copilot).map(\.label) == ["B", "C"])
+        #expect(settings.tokenAccounts(for: .claude).map(\.label) == ["B", "C"])
     }
 
     @Test
@@ -318,28 +216,6 @@ struct SettingsStoreCoverageTests {
     }
 
     @Test
-    func `opencode go token accounts force manual cookie routing`() {
-        let settings = Self.makeSettingsStore()
-        settings.addTokenAccount(provider: .opencodego, label: "Go", token: "auth=go-cookie")
-
-        let snapshot = settings.opencodegoSettingsSnapshot(tokenOverride: nil)
-
-        #expect(settings.opencodegoCookieSource == .manual)
-        #expect(snapshot.cookieSource == .manual)
-        #expect(snapshot.manualCookieHeader == "auth=go-cookie")
-    }
-
-    @Test
-    func `opencode go snapshot preserves nil workspace id when settings are unset`() {
-        let settings = Self.makeSettingsStore()
-
-        let snapshot = settings.opencodegoSettingsSnapshot(tokenOverride: nil)
-
-        #expect(settings.opencodegoWorkspaceID.isEmpty)
-        #expect(snapshot.workspaceID == nil)
-    }
-
-    @Test
     func `token cost usage source detection`() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -371,25 +247,12 @@ struct SettingsStoreCoverageTests {
     func `ensure token loaders execute`() {
         let settings = Self.makeSettingsStore()
 
-        settings.ensureZaiAPITokenLoaded()
-        settings.ensureSyntheticAPITokenLoaded()
         settings.ensureCodexCookieLoaded()
         settings.ensureClaudeCookieLoaded()
-        settings.ensureCursorCookieLoaded()
-        settings.ensureOpenCodeCookieLoaded()
-        settings.ensureFactoryCookieLoaded()
-        settings.ensureMiniMaxCookieLoaded()
-        settings.ensureMiniMaxAPITokenLoaded()
-        settings.ensureKimiAuthTokenLoaded()
-        settings.ensureKimiK2APITokenLoaded()
-        settings.ensureAugmentCookieLoaded()
-        settings.ensureAmpCookieLoaded()
-        settings.ensureOllamaCookieLoaded()
-        settings.ensureCopilotAPITokenLoaded()
         settings.ensureTokenAccountsLoaded()
 
-        #expect(settings.zaiAPIToken.isEmpty)
-        #expect(settings.syntheticAPIToken.isEmpty)
+        #expect(settings.tokenAccounts(for: .codex).isEmpty)
+        #expect(settings.tokenAccounts(for: .claude).isEmpty)
     }
 
     @Test
@@ -402,12 +265,10 @@ struct SettingsStoreCoverageTests {
 
         settings.codexCookieSource = .auto
         settings.claudeCookieSource = .auto
-        settings.kimiCookieSource = .off
         settings.debugDisableKeychainAccess = true
 
         #expect(settings.codexCookieSource == .manual)
         #expect(settings.claudeCookieSource == .manual)
-        #expect(settings.kimiCookieSource == .off)
     }
 
     @Test
@@ -493,57 +354,6 @@ struct SettingsStoreCoverageTests {
     }
 
     @Test
-    func `upsert antigravity oauth account adds and updates active token account`() throws {
-        let settings = Self.makeSettingsStore()
-        let first = AntigravityOAuthCredentials(
-            accessToken: "first-access",
-            refreshToken: "first-refresh",
-            expiryDate: Date(timeIntervalSince1970: 1_700_000_000),
-            email: "user@example.com")
-        let updated = AntigravityOAuthCredentials(
-            accessToken: "updated-access",
-            refreshToken: "first-refresh",
-            expiryDate: Date(timeIntervalSince1970: 1_700_000_100),
-            email: "user@example.com")
-
-        settings.upsertAntigravityOAuthAccount(first)
-        settings.upsertAntigravityOAuthAccount(updated)
-
-        let accounts = settings.tokenAccounts(for: .antigravity)
-        #expect(accounts.count == 1)
-        let account = try #require(accounts.first)
-        #expect(account.label == "user@example.com")
-        #expect(account.externalIdentifier == "user@example.com")
-        #expect(settings.selectedTokenAccount(for: .antigravity)?.id == account.id)
-
-        let decoded = try #require(AntigravityOAuthCredentialsStore.credentials(fromTokenAccountValue: account.token))
-        #expect(decoded.accessToken == "updated-access")
-    }
-
-    @Test
-    func `upsert antigravity oauth account does not merge missing email accounts by fallback label`() {
-        let settings = Self.makeSettingsStore()
-        let first = AntigravityOAuthCredentials(
-            accessToken: "first-access",
-            refreshToken: "first-refresh",
-            expiryDate: Date(timeIntervalSince1970: 1_700_000_000),
-            email: nil)
-        let second = AntigravityOAuthCredentials(
-            accessToken: "second-access",
-            refreshToken: "second-refresh",
-            expiryDate: Date(timeIntervalSince1970: 1_700_000_100),
-            email: nil)
-
-        settings.upsertAntigravityOAuthAccount(first)
-        settings.upsertAntigravityOAuthAccount(second)
-
-        let accounts = settings.tokenAccounts(for: .antigravity)
-        #expect(accounts.count == 2)
-        #expect(accounts.map(\.label) == ["Google Account 1", "Google Account 2"])
-        #expect(settings.selectedTokenAccount(for: .antigravity)?.id == accounts.last?.id)
-    }
-
-    @Test
     func `weekly progress work days defaults to nil and persists across store reload`() throws {
         let suite = "SettingsStoreCoverageTests-weekly-progress-work-days"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -575,35 +385,29 @@ struct SettingsStoreCoverageTests {
         #expect(reloaded4.weeklyProgressWorkDays == nil)
     }
 
-    private static func makeSettingsStore(suiteName: String = "SettingsStoreCoverageTests") -> SettingsStore {
+    private static func makeSettingsStore(
+        suiteName: String = "SettingsStoreCoverageTests")
+        -> SettingsStore
+    {
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         defaults.set(false, forKey: "debugDisableKeychainAccess")
         let configStore = testConfigStore(suiteName: suiteName)
-        return Self.makeSettingsStore(userDefaults: defaults, configStore: configStore)
+        return Self.makeSettingsStore(
+            userDefaults: defaults,
+            configStore: configStore)
     }
 
     private static func makeSettingsStore(
         userDefaults: UserDefaults,
-        configStore: CodexBarConfigStore) -> SettingsStore
+        configStore: CodexBarConfigStore)
+        -> SettingsStore
     {
         SettingsStore(
             userDefaults: userDefaults,
             configStore: configStore,
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore(),
             codexCookieStore: InMemoryCookieHeaderStore(),
             claudeCookieStore: InMemoryCookieHeaderStore(),
-            cursorCookieStore: InMemoryCookieHeaderStore(),
-            opencodeCookieStore: InMemoryCookieHeaderStore(),
-            factoryCookieStore: InMemoryCookieHeaderStore(),
-            minimaxCookieStore: InMemoryMiniMaxCookieStore(),
-            minimaxAPITokenStore: InMemoryMiniMaxAPITokenStore(),
-            kimiTokenStore: InMemoryKimiTokenStore(),
-            kimiK2TokenStore: InMemoryKimiK2TokenStore(),
-            augmentCookieStore: InMemoryCookieHeaderStore(),
-            ampCookieStore: InMemoryCookieHeaderStore(),
-            copilotTokenStore: InMemoryCopilotTokenStore(),
             tokenAccountStore: InMemoryTokenAccountStore())
     }
 }

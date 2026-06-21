@@ -104,10 +104,6 @@ struct DebugPane: View {
                     Picker(L("Provider"), selection: self.$currentLogProvider) {
                         Text("Codex").tag(UsageProvider.codex)
                         Text("Claude").tag(UsageProvider.claude)
-                        Text("Cursor").tag(UsageProvider.cursor)
-                        Text("Augment").tag(UsageProvider.augment)
-                        Text("Amp").tag(UsageProvider.amp)
-                        Text("Ollama").tag(UsageProvider.ollama)
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 460)
@@ -311,12 +307,6 @@ struct DebugPane: View {
                     Picker(L("Provider"), selection: self.$currentErrorProvider) {
                         Text("Codex").tag(UsageProvider.codex)
                         Text("Claude").tag(UsageProvider.claude)
-                        Text("Gemini").tag(UsageProvider.gemini)
-                        Text("Antigravity").tag(UsageProvider.antigravity)
-                        Text("Augment").tag(UsageProvider.augment)
-                        Text("Amp").tag(UsageProvider.amp)
-                        Text("T3 Chat").tag(UsageProvider.t3chat)
-                        Text("Ollama").tag(UsageProvider.ollama)
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 360)

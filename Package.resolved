@@ -1,15 +1,6 @@
 {
-  "originHash" : "9daf4612f2543e308a07be34ab3ccf2f4650427ce8086e5943eaed1fa79b64f4",
+  "originHash" : "ad332ff27a6f5b749022a9745b06cebfaf44823ce2c9ed15b161486a5ab7fa87",
   "pins" : [
-    {
-      "identity" : "commander",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/steipete/Commander",
-      "state" : {
-        "revision" : "ae2ce746b386ff94b26648cfe5625cfa8d02639b",
-        "version" : "0.2.2"
-      }
-    },
     {
       "identity" : "keyboardshortcuts",
       "kind" : "remoteSourceControl",
@@ -62,15 +53,6 @@
       "state" : {
         "revision" : "5073617dac96330a486245e4c0179cb0a6fd2256",
         "version" : "1.12.0"
-      }
-    },
-    {
-      "identity" : "swift-syntax",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-syntax",
-      "state" : {
-        "revision" : "0687f71944021d616d34d922343dcef086855920",
-        "version" : "600.0.1"
       }
     },
     {

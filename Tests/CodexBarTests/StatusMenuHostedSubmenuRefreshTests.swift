@@ -7,6 +7,36 @@ import Testing
 @Suite(.serialized)
 struct StatusMenuHostedSubmenuRefreshTests {
     @Test
+    func `storage native row preserves its plain menu title`() throws {
+        let settings = Self.makeSettings()
+        settings.providerStorageFootprintsEnabled = true
+        let fetcher = UsageFetcher()
+        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
+        Self.seedStorageFootprint(in: store)
+
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: .system)
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let menu = NSMenu()
+        #expect(controller.addStorageMenuCardSection(
+            to: menu,
+            provider: .claude,
+            width: StatusItemController.menuCardBaseWidth))
+        let item = try #require(menu.items.first)
+        #expect(item.title.hasPrefix(L("Storage")))
+        #expect(item.title == item.attributedTitle?.string)
+        #expect(item.view == nil)
+        #expect(item.isEnabled)
+        #expect(item.submenu != nil)
+    }
+
+    @Test
     func `open parent menu defers data rebuild until parent tracking ends`() async throws {
         let previousMenuCardRendering = StatusItemController.menuCardRenderingEnabled
         StatusItemController.menuCardRenderingEnabled = true
@@ -43,11 +73,10 @@ struct StatusMenuHostedSubmenuRefreshTests {
         controller.menuVersions[parentKey] = controller.menuContentVersion
 
         let costItem = try #require(menu.items.first { ($0.representedObject as? String) == "menuCardCost" })
-        #expect(costItem.view is any MenuCardMeasuring)
+        #expect(costItem.view == nil)
+        #expect(costItem.title == StatusItemController.costMenuTitle)
+        #expect(costItem.isEnabled)
         let submenu = try #require(costItem.submenu)
-        let submenuAction = try #require(costItem.action)
-        #expect(NSStringFromSelector(submenuAction) == "menuCardNoOp:")
-        #expect(costItem.target === controller)
         #expect(submenu.items.first?.representedObject as? String == StatusItemController.costHistoryChartID)
         #expect(submenu.minimumWidth >= StatusItemController.menuCardBaseWidth)
         #expect(submenu.items.first?.view == nil)
@@ -154,10 +183,6 @@ struct StatusMenuHostedSubmenuRefreshTests {
             provider: .claude,
             seed: Self.seedClaudeSnapshots)
         try self.assertHostedSubmenuPreservesIdentity(
-            chartID: StatusItemController.costHistoryChartID,
-            provider: .openai,
-            seed: Self.seedOpenAICostSnapshot)
-        try self.assertHostedSubmenuPreservesIdentity(
             chartID: StatusItemController.usageHistoryChartID,
             provider: .claude,
             seed: Self.seedPlanUtilizationHistory)
@@ -165,10 +190,6 @@ struct StatusMenuHostedSubmenuRefreshTests {
             chartID: StatusItemController.storageBreakdownID,
             provider: .claude,
             seed: Self.seedStorageFootprint)
-        try self.assertHostedSubmenuPreservesIdentity(
-            chartID: StatusItemController.zaiHourlyUsageChartID,
-            provider: .zai,
-            seed: Self.seedZaiHourlyUsage)
     }
 
     @Test
@@ -194,29 +215,6 @@ struct StatusMenuHostedSubmenuRefreshTests {
         { controller, submenu, width in
             controller.appendStorageBreakdownItem(to: submenu, provider: .claude, width: width)
         }
-    }
-
-    @Test
-    func `zai chart render signature follows time range boundaries`() throws {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        let beforeMidnight = try #require(formatter.date(from: "2026-01-01 23:30"))
-        let afterMidnight = try #require(formatter.date(from: "2026-01-02 00:30"))
-        let modelUsage = ZaiModelUsageData(
-            xTime: ["2026-01-01 23:00"],
-            modelDataList: [
-                ZaiModelDataItem(modelName: "glm-4.5", tokensUsage: [100]),
-            ])
-
-        let before = StatusItemController.zaiHourlyUsageRenderSignature(
-            modelUsage: modelUsage,
-            now: beforeMidnight)
-        let after = StatusItemController.zaiHourlyUsageRenderSignature(
-            modelUsage: modelUsage,
-            now: afterMidnight)
-
-        #expect(before != after)
     }
 
     @Test
@@ -362,13 +360,6 @@ struct StatusMenuHostedSubmenuRefreshTests {
         #expect(hydratedItem.view != nil)
         #expect(hydratedItem.title != "No data available")
         let hydratedView = hydratedItem.view
-        let inflatedHeight = hydratedView.map { view -> CGFloat in
-            let inflatedHeight = view.frame.height + 100
-            if chartID == StatusItemController.zaiHourlyUsageChartID {
-                view.frame.size.height = inflatedHeight
-            }
-            return inflatedHeight
-        }
 
         controller.refreshHostedSubviewMenu(submenu)
 
@@ -378,9 +369,6 @@ struct StatusMenuHostedSubmenuRefreshTests {
         #expect(refreshedItem.view != nil)
         #expect(refreshedItem.title != "No data available")
         #expect(refreshedItem.view === hydratedView)
-        if chartID == StatusItemController.zaiHourlyUsageChartID {
-            #expect(refreshedItem.view?.frame.height != inflatedHeight)
-        }
 
         if chartID == StatusItemController.costHistoryChartID, provider == .claude {
             store._setTokenSnapshotForTesting(Self.makeTokenSnapshot(dailyCost: 2.34), provider: .claude)
@@ -396,11 +384,7 @@ struct StatusMenuHostedSubmenuRefreshTests {
         let suite = "StatusMenuHostedSubmenuRefreshTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        return SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite))
     }
 
     private static func enableOnlyClaude(_ settings: SettingsStore) {
@@ -428,38 +412,6 @@ struct StatusMenuHostedSubmenuRefreshTests {
                 loginMethod: "Team"))
         store._setSnapshotForTesting(snapshot, provider: .claude)
         store._setTokenSnapshotForTesting(Self.makeTokenSnapshot(), provider: .claude)
-    }
-
-    private static func seedOpenAICostSnapshot(in store: UsageStore) {
-        let day = Date(timeIntervalSince1970: 1_700_000_000)
-        let apiUsage = OpenAIAPIUsageSnapshot(
-            daily: [
-                OpenAIAPIUsageSnapshot.DailyBucket(
-                    day: "2025-12-23",
-                    startTime: day,
-                    endTime: day.addingTimeInterval(86400),
-                    costUSD: 1.23,
-                    requests: 12,
-                    inputTokens: 100,
-                    cachedInputTokens: 20,
-                    outputTokens: 40,
-                    totalTokens: 160,
-                    lineItems: [],
-                    models: []),
-            ],
-            updatedAt: Date(timeIntervalSince1970: 1_700_086_400))
-        let snapshot = UsageSnapshot(
-            primary: nil,
-            secondary: nil,
-            tertiary: nil,
-            openAIAPIUsage: apiUsage,
-            updatedAt: Date(timeIntervalSince1970: 1_700_086_400),
-            identity: ProviderIdentitySnapshot(
-                providerID: .openai,
-                accountEmail: "openai@example.com",
-                accountOrganization: nil,
-                loginMethod: "API"))
-        store._setSnapshotForTesting(snapshot, provider: .openai)
     }
 
     private static func seedPlanUtilizationHistory(in store: UsageStore) {
@@ -492,31 +444,6 @@ struct StatusMenuHostedSubmenuRefreshTests {
             unreadablePaths: [],
             components: [.init(path: "\(root)/projects", totalBytes: 1024)],
             updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
-    }
-
-    private static func seedZaiHourlyUsage(in store: UsageStore) {
-        let modelUsage = ZaiModelUsageData(
-            xTime: ["2026-05-26 00:00"],
-            modelDataList: [
-                ZaiModelDataItem(modelName: "glm-4.5", tokensUsage: [512]),
-            ])
-        let snapshot = UsageSnapshot(
-            primary: nil,
-            secondary: nil,
-            tertiary: nil,
-            zaiUsage: ZaiUsageSnapshot(
-                tokenLimit: nil,
-                timeLimit: nil,
-                planName: "Pro",
-                modelUsage: modelUsage,
-                updatedAt: Date(timeIntervalSince1970: 1_700_000_000)),
-            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            identity: ProviderIdentitySnapshot(
-                providerID: .zai,
-                accountEmail: "zai@example.com",
-                accountOrganization: nil,
-                loginMethod: "OAuth"))
-        store._setSnapshotForTesting(snapshot, provider: .zai)
     }
 
     private static func makeTokenSnapshot(dailyCost: Double = 1.23) -> CostUsageTokenSnapshot {

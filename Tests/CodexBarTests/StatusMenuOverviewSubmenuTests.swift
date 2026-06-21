@@ -11,36 +11,37 @@ extension StatusMenuTests {
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.mergeIcons = true
-        settings.selectedMenuProvider = .openai
+        settings.selectedMenuProvider = .codex
         settings.mergedMenuLastSelectedWasOverview = true
+        settings.costUsageEnabled = true
 
         let registry = ProviderRegistry.shared
         for provider in UsageProvider.allCases {
             guard let metadata = registry.metadata[provider] else { continue }
-            let shouldEnable = provider == .openai || provider == .codex
+            let shouldEnable = provider == .claude || provider == .codex
             settings.setProviderEnabled(provider: provider, metadata: metadata, enabled: shouldEnable)
         }
 
         let fetcher = UsageFetcher()
         let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let usage = OpenAIAPIUsageSnapshot(
-            daily: [
-                OpenAIAPIUsageSnapshot.DailyBucket(
-                    day: "2023-11-14",
-                    startTime: now,
-                    endTime: now.addingTimeInterval(86400),
-                    costUSD: 9,
-                    requests: 12,
-                    inputTokens: 100,
-                    cachedInputTokens: 0,
-                    outputTokens: 50,
-                    totalTokens: 150,
-                    lineItems: [],
-                    models: []),
-            ],
-            updatedAt: now)
-        store._setSnapshotForTesting(usage.toUsageSnapshot(), provider: .openai)
+        store._setTokenSnapshotForTesting(
+            CostUsageTokenSnapshot(
+                sessionTokens: 123,
+                sessionCostUSD: 0.12,
+                last30DaysTokens: 123,
+                last30DaysCostUSD: 1.23,
+                daily: [
+                    CostUsageDailyReport.Entry(
+                        date: "2025-12-23",
+                        inputTokens: nil,
+                        outputTokens: nil,
+                        totalTokens: 123,
+                        costUSD: 1.23,
+                        modelsUsed: nil,
+                        modelBreakdowns: nil),
+                ],
+                updatedAt: Date()),
+            provider: .codex)
 
         let controller = StatusItemController(
             store: store,
@@ -54,10 +55,10 @@ extension StatusMenuTests {
         let menu = controller.makeMenu()
         controller.menuWillOpen(menu)
 
-        let openAIRow = try #require(menu.items.first {
-            ($0.representedObject as? String) == "overviewRow-openai"
+        let codexRow = try #require(menu.items.first {
+            ($0.representedObject as? String) == "overviewRow-codex"
         })
-        #expect(openAIRow.submenu?.items.contains {
+        #expect(codexRow.submenu?.items.contains {
             ($0.representedObject as? String) == StatusItemController.costHistoryChartID
         } == true)
     }
@@ -71,32 +72,35 @@ extension StatusMenuTests {
         settings.mergeIcons = true
         settings.selectedMenuProvider = .claude
         settings.mergedMenuLastSelectedWasOverview = true
+        settings.costUsageEnabled = true
 
         let registry = ProviderRegistry.shared
         for provider in UsageProvider.allCases {
             guard let metadata = registry.metadata[provider] else { continue }
-            let shouldEnable = provider == .zai || provider == .claude
+            let shouldEnable = provider == .codex || provider == .claude
             settings.setProviderEnabled(provider: provider, metadata: metadata, enabled: shouldEnable)
         }
 
         let fetcher = UsageFetcher()
         let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let usage = ZaiUsageSnapshot(
-            tokenLimit: nil,
-            timeLimit: ZaiLimitEntry(
-                type: .timeLimit,
-                unit: .minutes,
-                number: 1,
-                usage: 100,
-                currentValue: 50,
-                remaining: 50,
-                percentage: 50,
-                usageDetails: [ZaiUsageDetail(modelCode: "glm-4.5", usage: 512)],
-                nextResetTime: now.addingTimeInterval(3600)),
-            planName: "Pro",
-            updatedAt: now)
-        store._setSnapshotForTesting(usage.toUsageSnapshot(), provider: .zai)
+        store._setTokenSnapshotForTesting(
+            CostUsageTokenSnapshot(
+                sessionTokens: 123,
+                sessionCostUSD: 0.12,
+                last30DaysTokens: 123,
+                last30DaysCostUSD: 1.23,
+                daily: [
+                    CostUsageDailyReport.Entry(
+                        date: "2025-12-23",
+                        inputTokens: nil,
+                        outputTokens: nil,
+                        totalTokens: 123,
+                        costUSD: 1.23,
+                        modelsUsed: nil,
+                        modelBreakdowns: nil),
+                ],
+                updatedAt: Date()),
+            provider: .codex)
 
         let controller = StatusItemController(
             store: store,
@@ -110,19 +114,19 @@ extension StatusMenuTests {
         let menu = controller.makeMenu()
         controller.menuWillOpen(menu)
 
-        let zaiRow = try #require(menu.items.first {
-            ($0.representedObject as? String) == "overviewRow-zai"
+        let codexRow = try #require(menu.items.first {
+            ($0.representedObject as? String) == "overviewRow-codex"
         })
-        #expect(zaiRow.submenu != nil)
+        #expect(codexRow.submenu != nil)
 
-        let action = try #require(zaiRow.action)
-        let target = try #require(zaiRow.target as? StatusItemController)
-        _ = target.perform(action, with: zaiRow)
+        let action = try #require(codexRow.action)
+        let target = try #require(codexRow.target as? StatusItemController)
+        _ = target.perform(action, with: codexRow)
 
         #expect(settings.mergedMenuLastSelectedWasOverview)
         #expect(settings.selectedMenuProvider == .claude)
         #expect(menu.items.contains {
-            ($0.representedObject as? String) == "overviewRow-zai"
+            ($0.representedObject as? String) == "overviewRow-codex"
         })
     }
 
@@ -147,7 +151,7 @@ extension StatusMenuTests {
         let registry = ProviderRegistry.shared
         for provider in UsageProvider.allCases {
             guard let metadata = registry.metadata[provider] else { continue }
-            let shouldEnable = provider == .codex || provider == .cursor
+            let shouldEnable = provider == .codex || provider == .claude
             settings.setProviderEnabled(provider: provider, metadata: metadata, enabled: shouldEnable)
         }
 
@@ -166,8 +170,8 @@ extension StatusMenuTests {
         controller.menuWillOpen(menu)
         defer { controller.menuDidClose(menu) }
 
-        let cursorRow = try #require(menu.items.first {
-            ($0.representedObject as? String) == "overviewRow-cursor"
+        _ = try #require(menu.items.first {
+            ($0.representedObject as? String) == "overviewRow-claude"
         })
         var rebuildCount = 0
         controller._test_openMenuRebuildObserver = { _ in
@@ -175,12 +179,12 @@ extension StatusMenuTests {
         }
         defer { controller._test_openMenuRebuildObserver = nil }
 
-        let action = try #require(cursorRow.action)
-        let target = try #require(cursorRow.target as? StatusItemController)
-        _ = target.perform(action, with: cursorRow)
+        // Overview rows with detail submenus expose a no-op menu-item action; the live selection
+        // path is the row's click handler, which forwards to selectOverviewProvider(_:menu:).
+        controller.selectOverviewProvider(.claude, menu: menu)
 
         #expect(settings.mergedMenuLastSelectedWasOverview == false)
-        #expect(settings.selectedMenuProvider == .cursor)
+        #expect(settings.selectedMenuProvider == .claude)
         #expect(rebuildCount == 0)
         #expect(menu.items.contains {
             ($0.representedObject as? String)?.hasPrefix("overviewRow-") == true
@@ -221,7 +225,7 @@ extension StatusMenuTests {
         let registry = ProviderRegistry.shared
         for provider in UsageProvider.allCases {
             guard let metadata = registry.metadata[provider] else { continue }
-            let shouldEnable = provider == .codex || provider == .cursor
+            let shouldEnable = provider == .codex || provider == .claude
             settings.setProviderEnabled(provider: provider, metadata: metadata, enabled: shouldEnable)
         }
 
@@ -239,8 +243,8 @@ extension StatusMenuTests {
         let menu = controller.makeMenu()
         controller.menuWillOpen(menu)
 
-        let cursorRow = try #require(menu.items.first {
-            ($0.representedObject as? String) == "overviewRow-cursor"
+        _ = try #require(menu.items.first {
+            ($0.representedObject as? String) == "overviewRow-claude"
         })
         var rebuildCount = 0
         controller._test_openMenuRebuildObserver = { _ in
@@ -248,15 +252,15 @@ extension StatusMenuTests {
         }
         defer { controller._test_openMenuRebuildObserver = nil }
 
-        let action = try #require(cursorRow.action)
-        let target = try #require(cursorRow.target as? StatusItemController)
-        _ = target.perform(action, with: cursorRow)
+        // Overview rows with detail submenus expose a no-op menu-item action; the live selection
+        // path is the row's click handler, which forwards to selectOverviewProvider(_:menu:).
+        controller.selectOverviewProvider(.claude, menu: menu)
         controller.menuDidClose(menu)
 
         await Task.yield()
         await Task.yield()
         #expect(rebuildCount == 0)
-        #expect(settings.selectedMenuProvider == .cursor)
+        #expect(settings.selectedMenuProvider == .claude)
 
         controller.menuWillOpen(menu)
         defer { controller.menuDidClose(menu) }

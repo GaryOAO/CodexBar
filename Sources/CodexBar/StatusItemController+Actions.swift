@@ -42,6 +42,43 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         }
     }
 
+    func performStoreRefresh(
+        for provider: UsageProvider,
+        refreshOpenMenusWhenComplete: Bool,
+        interaction: ProviderInteraction) async
+    {
+        await ProviderInteractionContext.$current.withValue(interaction) {
+            let refreshStartedAt = Date()
+            await self.store.refreshProvider(provider)
+            guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
+            await self.store.refreshProviderStatus(provider)
+            guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
+            await self.store.refreshTokenUsageNow(for: provider, force: true)
+            guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
+            if provider == .codex {
+                await self.store.refreshCreditsNow(minimumSnapshotUpdatedAt: refreshStartedAt)
+                guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
+                await self.store.refreshOpenAIDashboardIfNeeded(
+                    force: true,
+                    expectedGuard: self.store.freshCodexOpenAIWebRefreshGuard())
+                guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
+                if self.store.openAIDashboardRequiresLogin {
+                    await self.store.refreshProvider(.codex)
+                    guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
+                    await self.store.refreshCreditsNow(minimumSnapshotUpdatedAt: refreshStartedAt)
+                    guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
+                }
+            }
+            self.store.scheduleStorageFootprintRefresh(for: [provider], force: true)
+            self.store.persistWidgetSnapshot(reason: "provider-refresh")
+            if refreshOpenMenusWhenComplete {
+                self.refreshOpenMenusAfterExplicitStoreAction()
+            } else {
+                self.invalidateMenus()
+            }
+        }
+    }
+
     func refreshOpenMenusAfterExplicitStoreAction() {
         self.invalidateMenus(
             refreshOpenMenus: true,
@@ -49,17 +86,51 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
     }
 
     @objc func refreshNow() {
+        self.startManualRefresh(for: nil)
+    }
+
+    @objc func refreshMenuItem(_ sender: NSMenuItem) {
+        self.refreshMenuProviderNow(in: sender.menu)
+    }
+
+    func refreshMenuProviderNow(in menu: NSMenu?) {
+        guard let provider = self.manualRefreshProvider(for: menu) else {
+            self.startManualRefresh(for: nil)
+            return
+        }
+        self.startManualRefresh(for: provider)
+    }
+
+    private func refreshMenuProviderNow(menuID: ObjectIdentifier) {
+        if let menu = self.openMenus[menuID] {
+            self.refreshMenuProviderNow(in: menu)
+        } else if let mergedMenu = self.mergedMenu, ObjectIdentifier(mergedMenu) == menuID {
+            self.refreshMenuProviderNow(in: mergedMenu)
+        } else if let provider = self.menuProviders[menuID] {
+            self.startManualRefresh(for: provider)
+        } else {
+            self.startManualRefresh(for: nil)
+        }
+    }
+
+    private func startManualRefresh(for provider: UsageProvider?) {
+        let scopedRefreshInFlight = provider.map { self.store.refreshingProviders.contains($0) }
+            ?? !self.store.refreshingProviders.isEmpty
         guard !self.hasPreparedForAppShutdown,
               self.manualRefreshTask == nil,
-              !self.store.isRefreshing
+              !self.store.isRefreshing,
+              !scopedRefreshInFlight
         else { return }
 
+        let frozenModels = self.frozenManualRefreshMenuCardModels()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
                 self.manualRefreshTask = nil
-                self.menuCardRefreshMonitor.isManualRefreshInFlight = false
-                self.updatePersistentRefreshRowsInProgress()
+                self.manualRefreshProvider = nil
+                self.menuCardRefreshMonitor.endManualRefresh()
+                self.updatePersistentRefreshItemsEnabled()
+                self.prepareAttachedClosedMenusIfNeeded()
             }
             guard !Task.isCancelled, !self.hasPreparedForAppShutdown else { return }
             #if DEBUG
@@ -69,19 +140,58 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
                 return
             }
             #endif
-            await self.performStoreRefresh(
-                forceTokenUsage: true,
-                refreshOpenMenusWhenComplete: true,
-                interaction: .userInitiated)
+            if let provider {
+                await self.performStoreRefresh(
+                    for: provider,
+                    refreshOpenMenusWhenComplete: true,
+                    interaction: .userInitiated)
+            } else {
+                await self.performStoreRefresh(
+                    forceTokenUsage: true,
+                    refreshOpenMenusWhenComplete: true,
+                    interaction: .userInitiated)
+            }
         }
+        self.manualRefreshProvider = provider
         self.manualRefreshTask = task
-        self.menuCardRefreshMonitor.isManualRefreshInFlight = true
-        self.updatePersistentRefreshRowsInProgress()
+        self.menuCardRefreshMonitor.beginManualRefresh(frozenModels: frozenModels, provider: provider)
+        self.updatePersistentRefreshItemsEnabled()
     }
 
-    nonisolated func performPersistentRefreshAction() {
+    private func manualRefreshProvider(for menu: NSMenu?) -> UsageProvider? {
+        guard let menu else { return nil }
+        if self.shouldMergeIcons {
+            guard self.mergedMenu == nil || menu === self.mergedMenu else { return nil }
+            guard !self.isMergedOverviewSelected(in: menu) else { return nil }
+            return self.resolvedMenuProvider()
+        }
+        return self.menuProviders[ObjectIdentifier(menu)]
+    }
+
+    private func frozenManualRefreshMenuCardModels() -> [UsageProvider: UsageMenuCardView.Model] {
+        var providers = self.store.enabledProvidersForDisplay()
+        if let lastMenuProvider,
+           !providers.contains(lastMenuProvider)
+        {
+            providers.append(lastMenuProvider)
+        }
+        if providers.isEmpty,
+           let defaultProvider = self.settings.orderedProviders().first ?? UsageProvider.allCases.first
+        {
+            providers.append(defaultProvider)
+        }
+
+        var models: [UsageProvider: UsageMenuCardView.Model] = [:]
+        for provider in providers {
+            models[provider] = self.menuCardModel(for: provider)
+        }
+        return models
+    }
+
+    nonisolated func performPersistentRefreshAction(in menuID: ObjectIdentifier) {
         Task { @MainActor [weak self] in
-            self?.refreshNow()
+            guard let self else { return }
+            self.refreshMenuProviderNow(menuID: menuID)
         }
     }
 
@@ -109,8 +219,6 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
 
     @objc func refreshAugmentSession() {
         Task {
-            await self.store.forceRefreshAugmentSession()
-            // Also trigger a full refresh to update the menu and clear any stale errors
             await ProviderInteractionContext.$current.withValue(.userInitiated) {
                 await self.store.refresh(forceTokenUsage: false)
             }
@@ -131,18 +239,11 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         NSWorkspace.shared.open(url)
     }
 
-    func dashboardURL(for provider: UsageProvider) -> URL? {
-        if provider == .alibaba {
-            return self.settings.alibabaCodingPlanAPIRegion.dashboardURL
-        }
-        if provider == .minimax {
-            return self.settings.minimaxAPIRegion.dashboardURL
-        }
-
-        if provider == .opencodego {
-            return self.settings.opencodegoDashboardURL
-        }
-
+    func dashboardURL(
+        for provider: UsageProvider,
+        environment: [String: String] = ProcessInfo.processInfo.environment) -> URL?
+    {
+        _ = environment
         let meta = self.store.metadata(for: provider)
         let urlString: String? = if provider == .claude, self.store.isClaudeSubscription() {
             meta.subscriptionDashboardURL ?? meta.dashboardURL
@@ -168,8 +269,21 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
 
         let autoStart = true
         let accountEmail = self.store.codexAccountEmailForOpenAIDashboard()
+        let cacheScope = self.store.codexCookieCacheScopeForOpenAIWeb()
+        guard OpenAICreditsPurchaseWindowController.canOpenPurchaseWindow(
+            accountEmail: accountEmail,
+            cacheScope: cacheScope)
+        else {
+            self.creditsPurchaseWindow?.close()
+            self.creditsPurchaseWindow = nil
+            return
+        }
         let controller = self.creditsPurchaseWindow ?? OpenAICreditsPurchaseWindowController()
-        controller.show(purchaseURL: url, accountEmail: accountEmail, autoStartPurchase: autoStart)
+        controller.show(
+            purchaseURL: url,
+            accountEmail: accountEmail,
+            cacheScope: cacheScope,
+            autoStartPurchase: autoStart)
         self.creditsPurchaseWindow = controller
     }
 
@@ -515,72 +629,9 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         }
     }
 
-    func describe(_ outcome: GeminiLoginRunner.Result.Outcome) -> String {
-        switch outcome {
-        case .success: "success"
-        case .missingBinary: "missingBinary"
-        case let .launchFailed(message): "launchFailed(\(message))"
-        }
-    }
-
-    func describe(_ outcome: AntigravityLoginRunner.Result.Outcome) -> String {
-        switch outcome {
-        case let .success(email):
-            "success(email: \(email ?? "nil"))"
-        case .cancelled:
-            "cancelled"
-        case .timedOut:
-            "timedOut"
-        case let .launchFailed(message):
-            "launchFailed(\(message))"
-        case let .failed(message):
-            "failed(\(message))"
-        }
-    }
-
-    func presentGeminiLoginResult(_ result: GeminiLoginRunner.Result) {
-        guard let info = Self.geminiLoginAlertInfo(for: result) else { return }
-        self.presentLoginAlert(title: info.title, message: info.message)
-    }
-
-    func presentAntigravityLoginResult(_ result: AntigravityLoginRunner.Result) {
-        guard let info = Self.antigravityLoginAlertInfo(for: result) else { return }
-        self.presentLoginAlert(title: info.title, message: info.message)
-    }
-
     struct LoginAlertInfo: Equatable {
         let title: String
         let message: String
-    }
-
-    nonisolated static func geminiLoginAlertInfo(for result: GeminiLoginRunner.Result) -> LoginAlertInfo? {
-        switch result.outcome {
-        case .success:
-            nil
-        case .missingBinary:
-            LoginAlertInfo(
-                title: L("Gemini CLI not found"),
-                message: L("Install the Gemini CLI (npm i -g @google/gemini-cli) and try again."))
-        case let .launchFailed(message):
-            LoginAlertInfo(title: L("Could not open Terminal for Gemini"), message: message)
-        }
-    }
-
-    nonisolated static func antigravityLoginAlertInfo(for result: AntigravityLoginRunner.Result) -> LoginAlertInfo? {
-        switch result.outcome {
-        case .success, .cancelled:
-            nil
-        case .timedOut:
-            LoginAlertInfo(
-                title: L("Antigravity login timed out"),
-                message: L("The browser login did not complete in time. Try Antigravity login again."))
-        case let .launchFailed(message):
-            LoginAlertInfo(
-                title: L("Could not open browser for Antigravity"),
-                message: String(format: L("Open this URL manually to continue login:\n\n%@"), message))
-        case let .failed(message):
-            LoginAlertInfo(title: L("Antigravity login failed"), message: message)
-        }
     }
 
     func presentLoginAlert(title: String, message: String) {
@@ -604,25 +655,5 @@ extension StatusItemController: StatusItemMenuPersistentActionDelegate {
         let name = ProviderDescriptorRegistry.descriptor(for: provider).metadata.displayName
         let (title, body) = LoginNotificationLogic.notificationCopy(providerName: name)
         AppNotifications.shared.post(idPrefix: "login-\(provider.rawValue)", title: title, body: body)
-    }
-
-    func presentCursorLoginResult(_ result: CursorLoginRunner.Result) {
-        switch result.outcome {
-        case .success:
-            return
-        case .cancelled:
-            // User closed the window; no alert needed
-            return
-        case let .failed(message):
-            self.presentLoginAlert(title: L("Cursor login failed"), message: message)
-        }
-    }
-
-    func describe(_ outcome: CursorLoginRunner.Result.Outcome) -> String {
-        switch outcome {
-        case .success: "success"
-        case .cancelled: "cancelled"
-        case let .failed(message): "failed(\(message))"
-        }
     }
 }

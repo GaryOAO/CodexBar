@@ -6,13 +6,7 @@ import Testing
 @MainActor
 struct UsageStoreSessionQuotaTransitionTests {
     private func makeSettings(suiteName: String) -> SettingsStore {
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suiteName),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        testSettingsStore(suiteName: suiteName)
     }
 
     @MainActor
@@ -30,64 +24,6 @@ struct UsageStoreSessionQuotaTransitionTests {
         func postQuotaWarning(event: QuotaWarningEvent, provider: UsageProvider, soundEnabled: Bool) {
             self.quotaWarningPosts.append((event: event, provider: provider, soundEnabled: soundEnabled))
         }
-    }
-
-    @Test
-    func `copilot switch from primary to secondary resets baseline`() {
-        let settings = self.makeSettings(suiteName: "UsageStoreSessionQuotaTransitionTests-primary-secondary")
-        settings.refreshFrequency = .manual
-        settings.statusChecksEnabled = false
-        settings.sessionQuotaNotificationsEnabled = true
-
-        let notifier = SessionQuotaNotifierSpy()
-        let store = UsageStore(
-            fetcher: UsageFetcher(),
-            browserDetection: BrowserDetection(cacheTTL: 0),
-            settings: settings,
-            sessionQuotaNotifier: notifier)
-
-        let primarySnapshot = UsageSnapshot(
-            primary: RateWindow(usedPercent: 20, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            secondary: nil,
-            updatedAt: Date())
-        store.handleSessionQuotaTransition(provider: .copilot, snapshot: primarySnapshot)
-
-        let secondarySnapshot = UsageSnapshot(
-            primary: nil,
-            secondary: RateWindow(usedPercent: 100, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            updatedAt: Date())
-        store.handleSessionQuotaTransition(provider: .copilot, snapshot: secondarySnapshot)
-
-        #expect(notifier.posts.isEmpty)
-    }
-
-    @Test
-    func `copilot switch from secondary to primary resets baseline`() {
-        let settings = self.makeSettings(suiteName: "UsageStoreSessionQuotaTransitionTests-secondary-primary")
-        settings.refreshFrequency = .manual
-        settings.statusChecksEnabled = false
-        settings.sessionQuotaNotificationsEnabled = true
-
-        let notifier = SessionQuotaNotifierSpy()
-        let store = UsageStore(
-            fetcher: UsageFetcher(),
-            browserDetection: BrowserDetection(cacheTTL: 0),
-            settings: settings,
-            sessionQuotaNotifier: notifier)
-
-        let secondarySnapshot = UsageSnapshot(
-            primary: nil,
-            secondary: RateWindow(usedPercent: 20, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            updatedAt: Date())
-        store.handleSessionQuotaTransition(provider: .copilot, snapshot: secondarySnapshot)
-
-        let primarySnapshot = UsageSnapshot(
-            primary: RateWindow(usedPercent: 100, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            secondary: nil,
-            updatedAt: Date())
-        store.handleSessionQuotaTransition(provider: .copilot, snapshot: primarySnapshot)
-
-        #expect(notifier.posts.isEmpty)
     }
 
     @Test
@@ -511,35 +447,6 @@ struct UsageStoreSessionQuotaTransitionTests {
     }
 
     @Test
-    func `minimax quota warning posts for session and weekly windows`() {
-        let settings = self.makeSettings(suiteName: "UsageStoreSessionQuotaTransitionTests-warning-minimax")
-        settings.refreshFrequency = .manual
-        settings.statusChecksEnabled = false
-        settings.quotaWarningNotificationsEnabled = true
-        settings.quotaWarningThresholds = [50, 20]
-        settings.setQuotaWarningWindowEnabled(.session, enabled: true)
-        settings.setQuotaWarningWindowEnabled(.weekly, enabled: true)
-
-        let notifier = SessionQuotaNotifierSpy()
-        let store = UsageStore(
-            fetcher: UsageFetcher(),
-            browserDetection: BrowserDetection(cacheTTL: 0),
-            settings: settings,
-            sessionQuotaNotifier: notifier)
-
-        store.handleQuotaWarningTransitions(
-            provider: .minimax,
-            snapshot: self.minimaxSnapshot(sessionUsed: 40, weeklyUsed: 40))
-        store.handleQuotaWarningTransitions(
-            provider: .minimax,
-            snapshot: self.minimaxSnapshot(sessionUsed: 55, weeklyUsed: 55))
-
-        #expect(notifier.quotaWarningPosts.map(\.provider) == [.minimax, .minimax])
-        #expect(notifier.quotaWarningPosts.map(\.event.window) == [.session, .weekly])
-        #expect(notifier.quotaWarningPosts.map(\.event.threshold) == [50, 50])
-    }
-
-    @Test
     func `disabling quota warning window clears fired state`() {
         let settings = self
             .makeSettings(suiteName: "UsageStoreSessionQuotaTransitionTests-warning-disabled-clears-state")
@@ -578,38 +485,5 @@ struct UsageStoreSessionQuotaTransitionTests {
 
         #expect(notifier.quotaWarningPosts.count == 1)
         #expect(store.quotaWarningState[UsageStore.QuotaWarningStateKey(provider: .codex, window: .session)] == nil)
-    }
-
-    private func minimaxSnapshot(sessionUsed: Double, weeklyUsed: Double) -> UsageSnapshot {
-        let now = Date()
-        return MiniMaxUsageSnapshot(
-            planName: "Plus",
-            availablePrompts: nil,
-            currentPrompts: nil,
-            remainingPrompts: nil,
-            windowMinutes: nil,
-            usedPercent: nil,
-            resetsAt: nil,
-            updatedAt: now,
-            services: [
-                MiniMaxServiceUsage(
-                    serviceType: "text-generation",
-                    windowType: "5 hours",
-                    timeRange: "15:00-20:00(UTC+8)",
-                    usage: Int(sessionUsed),
-                    limit: 100,
-                    percent: sessionUsed,
-                    resetsAt: now.addingTimeInterval(3600),
-                    resetDescription: "Resets in 1 hour"),
-                MiniMaxServiceUsage(
-                    serviceType: "text-generation",
-                    windowType: "Weekly",
-                    timeRange: "06/01 00:00 - 06/08 00:00(UTC+8)",
-                    usage: Int(weeklyUsed),
-                    limit: 100,
-                    percent: weeklyUsed,
-                    resetsAt: now.addingTimeInterval(6 * 24 * 3600),
-                    resetDescription: "Resets in 6 days"),
-            ]).toUsageSnapshot()
     }
 }

@@ -772,20 +772,8 @@ struct CodexManagedRoutingTests {
         return SettingsStore(
             userDefaults: defaults,
             configStore: configStore,
-            zaiTokenStore: InMemoryZaiTokenStore(),
-            syntheticTokenStore: InMemorySyntheticTokenStore(),
             codexCookieStore: InMemoryCookieHeaderStore(),
             claudeCookieStore: InMemoryCookieHeaderStore(),
-            cursorCookieStore: InMemoryCookieHeaderStore(),
-            opencodeCookieStore: InMemoryCookieHeaderStore(),
-            factoryCookieStore: InMemoryCookieHeaderStore(),
-            minimaxCookieStore: InMemoryMiniMaxCookieStore(),
-            minimaxAPITokenStore: InMemoryMiniMaxAPITokenStore(),
-            kimiTokenStore: InMemoryKimiTokenStore(),
-            kimiK2TokenStore: InMemoryKimiK2TokenStore(),
-            augmentCookieStore: InMemoryCookieHeaderStore(),
-            ampCookieStore: InMemoryCookieHeaderStore(),
-            copilotTokenStore: InMemoryCopilotTokenStore(),
             tokenAccountStore: InMemoryTokenAccountStore())
     }
 
@@ -832,20 +820,4 @@ struct CodexManagedRoutingTests {
 
         return "\(base64URL(header)).\(base64URL(payload))."
     }
-}
-
-private final class InMemoryZaiTokenStore: ZaiTokenStoring, @unchecked Sendable {
-    func loadToken() throws -> String? {
-        nil
-    }
-
-    func storeToken(_: String?) throws {}
-}
-
-private final class InMemorySyntheticTokenStore: SyntheticTokenStoring, @unchecked Sendable {
-    func loadToken() throws -> String? {
-        nil
-    }
-
-    func storeToken(_: String?) throws {}
 }

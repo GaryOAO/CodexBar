@@ -419,7 +419,6 @@ enum CostUsageScanner {
         checkCancellation: CancellationCheck?) throws -> CostUsageDailyReport
     {
         let range = CostUsageDayRange(since: since, until: until)
-        let emptyReport = CostUsageDailyReport(data: [], summary: nil)
         try checkCancellation?()
 
         switch provider {
@@ -436,24 +435,6 @@ enum CostUsageScanner {
                 now: now,
                 options: options,
                 checkCancellation: checkCancellation)
-        case .vertexai:
-            var filtered = options
-            if filtered.claudeLogProviderFilter == .all {
-                filtered.claudeLogProviderFilter = .vertexAIOnly
-            }
-            return try self.loadClaudeDaily(
-                provider: .vertexai,
-                range: range,
-                now: now,
-                options: filtered,
-                checkCancellation: checkCancellation)
-        case .openai, .azureopenai, .zai, .gemini, .antigravity, .cursor, .opencode, .opencodego, .alibaba,
-             .alibabatokenplan, .factory,
-             .copilot, .devin, .minimax, .manus, .kilo, .kiro, .kimi, .kimik2, .moonshot, .augment, .jetbrains, .amp,
-             .ollama, .t3chat, .synthetic, .openrouter, .elevenlabs, .warp, .perplexity, .mimo, .doubao, .abacus,
-             .mistral, .deepseek, .codebuff, .crof, .windsurf, .venice, .commandcode, .stepfun, .bedrock, .grok,
-             .groq, .llmproxy, .deepgram:
-            return emptyReport
         }
     }
 

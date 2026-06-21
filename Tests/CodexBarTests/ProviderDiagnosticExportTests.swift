@@ -8,8 +8,8 @@ struct ProviderDiagnosticExportTests {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let export = ProviderDiagnosticExport(
             timestamp: now,
-            provider: "openai",
-            displayName: "OpenAI",
+            provider: "codex",
+            displayName: "Codex",
             source: "api",
             sourceMode: "auto",
             auth: ProviderDiagnosticAuthSummary(configured: true, modes: ["api"]),
@@ -28,14 +28,15 @@ struct ProviderDiagnosticExportTests {
                     errorCategory: nil),
             ],
             error: nil,
-            settings: ProviderDiagnosticSettingsSummary(sourceMode: .auto),
-            details: nil)
+            settings: ProviderDiagnosticSettingsSummary(sourceMode: .auto))
 
         let json = try self.json(export)
 
         #expect(json.contains("\"provider\""))
-        #expect(json.contains("\"openai\""))
+        #expect(json.contains("\"codex\""))
         #expect(json.contains("\"auth\""))
+        #expect(json.contains("\"dataConfidence\""))
+        #expect(json.contains("\"unknown\""))
         #expect(json.contains("\"hasResetDescription\""))
         #expect(!json.contains("sk-cp-"))
         #expect(!json.contains("sk-api-"))
@@ -43,6 +44,110 @@ struct ProviderDiagnosticExportTests {
         #expect(!json.contains("raw local text"))
         #expect(!json.contains("errorMessage"))
         #expect(!json.contains("localizedDescription"))
+    }
+
+    @Test
+    func `usage snapshot defaults legacy payloads to unknown confidence without reencoding unknown`() throws {
+        let json = """
+        {
+          "primary": {
+            "usedPercent": 42,
+            "windowMinutes": 300,
+            "hasResetDescription": false
+          },
+          "secondary": null,
+          "tertiary": null,
+          "updatedAt": "2023-11-14T22:13:20Z"
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let snapshot = try decoder.decode(UsageSnapshot.self, from: Data(json.utf8))
+        #expect(snapshot.dataConfidence == .unknown)
+
+        let encoded = try self.json(snapshot)
+        #expect(!encoded.contains("dataConfidence"))
+    }
+
+    @Test
+    func `usage snapshot preserves explicit confidence through Codable`() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(
+                usedPercent: 12,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(18000),
+                resetDescription: nil),
+            secondary: nil,
+            updatedAt: now,
+            dataConfidence: .exact)
+
+        let encoded = try self.json(snapshot)
+        #expect(encoded.contains("\"dataConfidence\" : \"exact\""))
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(UsageSnapshot.self, from: Data(encoded.utf8))
+        #expect(decoded.dataConfidence == .exact)
+    }
+
+    @Test
+    func `usage snapshot treats future confidence values as unknown`() throws {
+        let json = """
+        {
+          "primary": null,
+          "secondary": null,
+          "tertiary": null,
+          "updatedAt": "2023-11-14T22:13:20Z",
+          "dataConfidence": "future"
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let snapshot = try decoder.decode(UsageSnapshot.self, from: Data(json.utf8))
+
+        #expect(snapshot.dataConfidence == .unknown)
+        #expect(try !self.json(snapshot).contains("dataConfidence"))
+    }
+
+    @Test
+    func `diagnostic usage summary includes confidence`() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let summary = ProviderDiagnosticUsageSummary(from: UsageSnapshot(
+            primary: RateWindow(
+                usedPercent: 12,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(18000),
+                resetDescription: nil),
+            secondary: nil,
+            updatedAt: now,
+            dataConfidence: .exact))
+
+        #expect(summary.dataConfidence == "exact")
+    }
+
+    @Test
+    func `diagnostic usage summary defaults legacy payloads to unknown confidence`() throws {
+        let json = """
+        {
+          "updatedAt": "2023-11-14T22:13:20Z",
+          "windows": [],
+          "extraWindowCount": 0,
+          "providerCostPresent": false,
+          "providerSpecificData": []
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let summary = try decoder.decode(
+            ProviderDiagnosticUsageSummary.self,
+            from: Data(json.utf8))
+
+        #expect(summary.dataConfidence == "unknown")
+        #expect(try self.json(summary).contains("\"dataConfidence\" : \"unknown\""))
     }
 
     @Test
@@ -93,8 +198,8 @@ struct ProviderDiagnosticExportTests {
     func `raw error text never appears in encoded JSON`() throws {
         let export = ProviderDiagnosticExport(
             timestamp: Date(timeIntervalSince1970: 1_700_000_000),
-            provider: "minimax",
-            displayName: "MiniMax",
+            provider: "claude",
+            displayName: "Claude",
             source: "failed",
             sourceMode: "auto",
             auth: ProviderDiagnosticAuthSummary(configured: true, modes: ["api"]),
@@ -108,8 +213,7 @@ struct ProviderDiagnosticExportTests {
             error: ProviderDiagnosticError(
                 category: "network",
                 safeDescription: "Network error - check your connection"),
-            settings: ProviderDiagnosticSettingsSummary(sourceMode: .auto, apiRegion: "global"),
-            details: nil)
+            settings: ProviderDiagnosticSettingsSummary(sourceMode: .auto, apiRegion: "global"))
 
         let json = try self.json(export)
 
@@ -124,54 +228,8 @@ struct ProviderDiagnosticExportTests {
     }
 
     @Test
-    func `diagnostic error maps MiniMaxUsageError categories safely`() {
-        let networkError = MiniMaxUsageError.networkError("connection refused")
-        let invalidCreds = MiniMaxUsageError.invalidCredentials
-        let apiError = MiniMaxUsageError.apiError("HTTP 404")
-        let parseError = MiniMaxUsageError.parseFailed("unexpected")
-
-        let diagNetwork = ProviderDiagnosticError(from: networkError, authConfigured: true)
-        #expect(diagNetwork.category == "network")
-        #expect(!diagNetwork.safeDescription.contains("connection refused"))
-
-        let diagCreds = ProviderDiagnosticError(from: invalidCreds, authConfigured: true)
-        #expect(diagCreds.category == "auth")
-
-        let diagAPI = ProviderDiagnosticError(from: apiError, authConfigured: true)
-        #expect(diagAPI.category == "api")
-
-        let diagParse = ProviderDiagnosticError(from: parseError, authConfigured: true)
-        #expect(diagParse.category == "parse")
-    }
-
-    @Test
-    func `diagnostic error maps Alibaba invalid endpoint override to configuration`() {
-        let error = ProviderEndpointOverrideError.alibabaCodingPlan("ALIBABA_CODING_PLAN_QUOTA_URL")
-        let diag = ProviderDiagnosticError(from: error, authConfigured: true)
-
-        #expect(diag.category == "configuration")
-        #expect(diag.safeDescription == "Configuration issue - check provider source and settings")
-    }
-
-    @Test
-    func `endpoint override fetch attempt stays in configuration category`() {
-        let error = ProviderEndpointOverrideError.minimax("MINIMAX_HOST")
-        let attempt = ProviderFetchAttempt(
-            strategyID: "minimax.web",
-            kind: .web,
-            wasAvailable: true,
-            errorDescription: error.localizedDescription)
-
-        let diagError = ProviderDiagnosticError(from: error, authConfigured: true)
-        let diagAttempt = ProviderDiagnosticFetchAttempt(from: attempt)
-
-        #expect(diagError.category == "configuration")
-        #expect(diagAttempt.errorCategory == "configuration")
-    }
-
-    @Test
     func `no available strategy maps missing auth to auth category`() {
-        let error = ProviderFetchError.noAvailableStrategy(.minimax)
+        let error = ProviderFetchError.noAvailableStrategy(.codex)
         let diag = ProviderDiagnosticError(from: error, authConfigured: false)
 
         #expect(diag.category == "auth")
@@ -181,10 +239,10 @@ struct ProviderDiagnosticExportTests {
     @Test
     func `available failed strategy does not imply auth is configured`() {
         let outcome = ProviderFetchOutcome(
-            result: .failure(ProviderFetchError.noAvailableStrategy(.antigravity)),
+            result: .failure(ProviderFetchError.noAvailableStrategy(.codex)),
             attempts: [
                 ProviderFetchAttempt(
-                    strategyID: "antigravity.local",
+                    strategyID: "codex.cli",
                     kind: .localProbe,
                     wasAvailable: true,
                     errorDescription: "unauthenticated local probe"),
@@ -199,10 +257,10 @@ struct ProviderDiagnosticExportTests {
     @Test
     func `fetch attempt error maps to safe category, never raw text`() {
         let attemptWithRawError = ProviderFetchAttempt(
-            strategyID: "minimax.api",
+            strategyID: "codex.api",
             kind: .apiToken,
             wasAvailable: true,
-            errorDescription: "MiniMax API timeout after 30 seconds - connection refused for host platform.minimax.io")
+            errorDescription: "Codex API timeout after 30 seconds - connection refused for host chatgpt.com")
         let diagAttempt = ProviderDiagnosticFetchAttempt(from: attemptWithRawError)
         #expect(diagAttempt.kind == "api")
         #expect(diagAttempt.wasAvailable == true)
@@ -211,119 +269,63 @@ struct ProviderDiagnosticExportTests {
         let cat1 = errorCategoryOne ?? ""
         #expect(!cat1.contains("timeout"))
         #expect(!cat1.contains("connection refused"))
-        #expect(!cat1.contains("platform.minimax.io"))
+        #expect(!cat1.contains("chatgpt.com"))
 
         let attemptWithAuthError = ProviderFetchAttempt(
-            strategyID: "minimax.web",
+            strategyID: "claude.web",
             kind: .web,
             wasAvailable: false,
-            errorDescription: "invalid auth token cookie HERTZ-SESSION=abc123")
+            errorDescription: "invalid auth token cookie sessionKey=abc123")
         let diagAuthAttempt = ProviderDiagnosticFetchAttempt(from: attemptWithAuthError)
         #expect(diagAuthAttempt.wasAvailable == false)
         let errorCategoryTwo = diagAuthAttempt.errorCategory
         #expect(errorCategoryTwo == "auth")
         let cat2 = errorCategoryTwo ?? ""
-        #expect(!cat2.contains("HERTZ-SESSION"))
+        #expect(!cat2.contains("sessionKey"))
     }
 
     @Test
     func `missing api key setup errors map to auth before api`() {
         let category = ProviderDiagnosticFetchAttempt.errorCategoryLabel(
-            "Azure OpenAI API key not configured. Set AZURE_OPENAI_API_KEY.")
+            "Anthropic Admin API key not configured. Set ANTHROPIC_ADMIN_KEY.")
 
         #expect(category == "auth")
     }
 
     @Test
-    func `MiniMax details map from MiniMaxUsageSnapshot correctly`() {
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let snapshot = MiniMaxUsageSnapshot(
-            planName: "Max",
-            availablePrompts: 1000,
-            currentPrompts: 250,
-            remainingPrompts: 750,
-            windowMinutes: 300,
-            usedPercent: 25,
-            resetsAt: now.addingTimeInterval(18000),
-            updatedAt: now,
-            services: nil)
-
-        let details = MiniMaxDiagnosticDetails(from: snapshot)
-        #expect(details.planName == "Max")
-        #expect(details.availablePrompts == 1000)
-        #expect(details.currentPrompts == 250)
-        #expect(details.remainingPrompts == 750)
-        #expect(details.windowMinutes == 300)
-        #expect(details.usedPercent == 25)
-    }
-
-    @Test
-    func `service usage maps from MiniMaxServiceUsage correctly`() throws {
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let service = MiniMaxServiceUsage(
-            serviceType: "Text Generation",
-            windowType: "5 hours",
-            timeRange: "10:00-15:00(UTC+8)",
-            usage: 750,
-            limit: 1000,
-            percent: 75,
-            resetsAt: now.addingTimeInterval(18000),
-            resetDescription: "5 hours")
-
-        let diagService = MiniMaxDiagnosticServiceUsage(from: service)
-        #expect(diagService.displayName == "Text Generation")
-        #expect(diagService.percent == 75)
-        #expect(diagService.windowType == "5 hours")
-        #expect(diagService.hasResetDescription == true)
-
-        let json = try self.json(diagService)
-        #expect(json.contains("hasResetDescription"))
-        #expect(!json.contains("resetDescription"))
-    }
-
-    @Test
     func `builder creates generic safe diagnostic with error on failure`() {
         let outcome = ProviderFetchOutcome(
-            result: .failure(MiniMaxUsageError.networkError("timeout")),
+            result: .failure(ProviderFetchError.noAvailableStrategy(.codex)),
             attempts: [
                 ProviderFetchAttempt(
-                    strategyID: "minimax.api",
+                    strategyID: "codex.api",
                     kind: .apiToken,
                     wasAvailable: true,
-                    errorDescription: "timeout"),
+                    errorDescription: "connection timeout"),
             ])
 
         let diag = ProviderDiagnosticExportBuilder.build(.init(
-            provider: .minimax,
-            descriptor: ProviderDescriptorRegistry.descriptor(for: .minimax),
+            provider: .codex,
+            descriptor: ProviderDescriptorRegistry.descriptor(for: .codex),
             outcome: outcome,
             sourceMode: .auto,
             settings: nil,
             auth: ProviderDiagnosticAuthSummary(configured: true, modes: ["apiToken"])))
 
-        #expect(diag.provider == "minimax")
+        #expect(diag.provider == "codex")
         #expect(diag.source == "failed")
         #expect(diag.auth.configured == true)
         #expect(diag.usage == nil)
         #expect(diag.error != nil)
-        #expect(diag.error?.category == "network")
+        // auth.configured == true with a noAvailableStrategy error maps to "configuration".
+        #expect(diag.error?.category == "configuration")
         #expect(diag.fetchAttempts.count == 1)
         #expect(diag.fetchAttempts[0].errorCategory == "network")
     }
 
     @Test
-    func `builder creates generic safe diagnostic with MiniMax details on success`() {
+    func `builder creates generic safe diagnostic with usage on success`() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let snapshot = MiniMaxUsageSnapshot(
-            planName: "Max",
-            availablePrompts: 1000,
-            currentPrompts: 250,
-            remainingPrompts: 750,
-            windowMinutes: 300,
-            usedPercent: 25,
-            resetsAt: now.addingTimeInterval(18000),
-            updatedAt: now)
-
         let result = ProviderFetchResult(
             usage: UsageSnapshot(
                 primary: RateWindow(
@@ -332,44 +334,37 @@ struct ProviderDiagnosticExportTests {
                     resetsAt: now.addingTimeInterval(18000),
                     resetDescription: nil),
                 secondary: nil,
-                tertiary: nil,
-                minimaxUsage: snapshot,
                 updatedAt: now),
             credits: nil,
             dashboard: nil,
             sourceLabel: "api",
-            strategyID: "minimax.api",
+            strategyID: "codex.api",
             strategyKind: .apiToken)
 
         let outcome = ProviderFetchOutcome(
             result: .success(result),
             attempts: [
                 ProviderFetchAttempt(
-                    strategyID: "minimax.api",
+                    strategyID: "codex.api",
                     kind: .apiToken,
                     wasAvailable: true,
                     errorDescription: nil),
             ])
 
         let diag = ProviderDiagnosticExportBuilder.build(.init(
-            provider: .minimax,
-            descriptor: ProviderDescriptorRegistry.descriptor(for: .minimax),
+            provider: .codex,
+            descriptor: ProviderDescriptorRegistry.descriptor(for: .codex),
             outcome: outcome,
             sourceMode: .auto,
             settings: nil,
             auth: ProviderDiagnosticAuthSummary(configured: true, modes: ["apiToken"])))
 
-        #expect(diag.provider == "minimax")
+        #expect(diag.provider == "codex")
         #expect(diag.source == "api")
         #expect(diag.auth.configured == true)
         #expect(diag.usage != nil)
         #expect(diag.error == nil)
-
-        guard case let .minimax(details) = diag.details else {
-            Issue.record("Expected MiniMax diagnostic details")
-            return
-        }
-        #expect(details.planName == "Max")
+        #expect(diag.usage?.windows.first?.usedPercent == 25)
     }
 
     private func json(_ value: some Encodable) throws -> String {

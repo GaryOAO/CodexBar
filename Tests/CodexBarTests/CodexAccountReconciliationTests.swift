@@ -10,11 +10,7 @@ struct CodexAccountReconciliationTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         defaults.set(true, forKey: "providerDetectionCompleted")
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suite))
         settings.providerDetectionCompleted = true
         return settings
     }

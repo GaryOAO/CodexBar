@@ -83,7 +83,7 @@ extension UsageStore {
         guard let snapshot else { return nil }
         let fallbackTokens = snapshot.daily.compactMap(\.totalTokens).reduce(0, +)
         let monthTokensValue = snapshot.last30DaysTokens ?? (fallbackTokens > 0 ? fallbackTokens : nil)
-        let sessionLabel = provider == .bedrock || provider == .mistral ? "Latest billing day" : "Today"
+        let sessionLabel = "Today"
         let monthLabel = snapshot.historyLabel ?? (snapshot.historyDays == 1 ? "Today" : "\(snapshot.historyDays)d")
         return WidgetSnapshot.TokenUsageSummary(
             sessionCostUSD: snapshot.sessionCostUSD,
@@ -119,15 +119,7 @@ extension UsageStore {
                     percentLeft: window.remainingPercent)
             }
         }
-
-        let primaryTitle: String = {
-            if provider == .grok,
-               let dyn = GrokProviderDescriptor.primaryLabel(window: snapshot.primary)
-            {
-                return dyn
-            }
-            return metadata?.sessionLabel ?? "Session"
-        }()
+        let primaryTitle = metadata?.sessionLabel ?? "Session"
 
         var rows: [WidgetSnapshot.WidgetUsageRowSnapshot] = [
             WidgetSnapshot.WidgetUsageRowSnapshot(

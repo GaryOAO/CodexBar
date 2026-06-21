@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 import AppKit
 import CodexBarCore
 import Foundation
@@ -16,7 +15,6 @@ extension UsageStore {
         _ = self.lastFetchAttempts
         _ = self.accountSnapshots
         _ = self.codexAccountSnapshots
-        _ = self.kiloScopeSnapshots
         _ = self.tokenSnapshots
         _ = self.tokenErrors
         _ = self.tokenRefreshInFlight
@@ -138,7 +136,6 @@ final class UsageStore {
     var lastFetchAttempts: [UsageProvider: [ProviderFetchAttempt]] = [:]
     var accountSnapshots: [UsageProvider: [TokenAccountUsageSnapshot]] = [:]
     var codexAccountSnapshots: [CodexAccountUsageSnapshot] = []
-    var kiloScopeSnapshots: [KiloScopeSnapshot] = []
     var tokenSnapshots: [UsageProvider: CostUsageTokenSnapshot] = [:]
     var tokenErrors: [UsageProvider: String] = [:]
     var tokenRefreshInFlight: Set<UsageProvider> = []
@@ -174,6 +171,7 @@ final class UsageStore {
     @ObservationIgnored var lastOpenAIDashboardSnapshot: OpenAIDashboardSnapshot?
     @ObservationIgnored var lastOpenAIDashboardAttachmentAuthorized: Bool = false
     @ObservationIgnored var lastOpenAIDashboardTargetEmail: String?
+    @ObservationIgnored var lastOpenAIDashboardTargetIsolationKey: String?
     @ObservationIgnored var lastOpenAIDashboardAttemptAt: Date?
     @ObservationIgnored var lastOpenAIDashboardCookieImportAttemptAt: Date?
     @ObservationIgnored var lastOpenAIDashboardCookieImportEmail: String?
@@ -220,7 +218,6 @@ final class UsageStore {
     @ObservationIgnored private let sessionQuotaLogger = CodexBarLog.logger(LogCategories.sessionQuota)
     @ObservationIgnored let openAIWebLogger = CodexBarLog.logger(LogCategories.openAIWeb)
     @ObservationIgnored private let tokenCostLogger = CodexBarLog.logger(LogCategories.tokenCost)
-    @ObservationIgnored let augmentLogger = CodexBarLog.logger(LogCategories.augment)
     @ObservationIgnored let providerLogger = CodexBarLog.logger(LogCategories.providers)
     @ObservationIgnored var openAIWebDebugLines: [String] = []
     @ObservationIgnored var failureGates: [UsageProvider: ConsecutiveFailureGate] = [:]
@@ -228,16 +225,13 @@ final class UsageStore {
     @ObservationIgnored var providerSpecs: [UsageProvider: ProviderSpec] = [:]
     @ObservationIgnored let providerMetadata: [UsageProvider: ProviderMetadata]
     @ObservationIgnored var providerRuntimes: [UsageProvider: any ProviderRuntime] = [:]
-    @ObservationIgnored var providerRefreshTasks: [UsageProvider: [ProviderRefreshTaskState]] = [:]
-    @ObservationIgnored var providerRefreshTaskGeneration: UInt64 = 0
-    @ObservationIgnored var providerRefreshWaiterGeneration: UInt64 = 0
-    @ObservationIgnored var latestProviderRefreshGenerations: [UsageProvider: UInt64] = [:]
-    @ObservationIgnored var providerRefreshCounts: [UsageProvider: Int] = [:]
+    @ObservationIgnored var providerRefreshCoordinator = ProviderRefreshCoordinator<UsageProvider>()
     @ObservationIgnored private var providerAvailabilityCache: [UsageProvider: ProviderAvailabilityCacheEntry] = [:]
     @ObservationIgnored var accountInfoCache: [UsageProvider: AccountInfoCacheEntry] = [:]
     @ObservationIgnored private var timerTask: Task<Void, Never>?
     @ObservationIgnored private var tokenTimerTask: Task<Void, Never>?
     @ObservationIgnored private var tokenRefreshSequenceTask: Task<Void, Never>?
+    @ObservationIgnored private var tokenRefreshSequenceProvider: UsageProvider?
     @ObservationIgnored var memoryPressureReliefTask: Task<Void, Never>?
     @ObservationIgnored var startupConnectivityRetryTask: Task<Void, Never>?
     @ObservationIgnored var startupConnectivityRetryNeeded = false
@@ -596,7 +590,7 @@ final class UsageStore {
                                 (ProviderInteractionContext.current == .background))
                     }
                     if availableRefreshProviders.contains(provider) {
-                        group.addTask { await self.refreshStatus(provider) }
+                        group.addTask { await self.refreshProviderStatus(provider) }
                     }
                 }
                 if forceTokenUsage {
@@ -733,19 +727,31 @@ final class UsageStore {
     }
 
     private func refreshTokenUsageSequenceNow(force: Bool) async {
-        if force, let existing = self.tokenRefreshSequenceTask {
-            existing.cancel()
-            await existing.value
-            self.tokenRefreshSequenceTask = nil
-        }
-
+        await self.drainScheduledTokenRefreshIfNeeded(force: force, scopedTo: nil)
         await self.refreshTokenUsageSequence(force: force)
     }
 
+    func refreshTokenUsageNow(for provider: UsageProvider, force: Bool) async {
+        await self.drainScheduledTokenRefreshIfNeeded(force: force, scopedTo: provider)
+        await self.refreshTokenUsage(provider, force: force)
+        self.scheduleMemoryPressureRelief()
+    }
+
+    private func drainScheduledTokenRefreshIfNeeded(force: Bool, scopedTo provider: UsageProvider?) async {
+        guard force, let existing = self.tokenRefreshSequenceTask else { return }
+        if let provider, self.tokenRefreshSequenceProvider != provider { return }
+        existing.cancel()
+        await existing.value
+        self.tokenRefreshSequenceTask = nil
+    }
+
     private func refreshTokenUsageSequence(force: Bool) async {
+        defer { self.tokenRefreshSequenceProvider = nil }
         for provider in self.enabledProvidersForBackgroundWork() {
             if Task.isCancelled { break }
+            self.tokenRefreshSequenceProvider = provider
             await self.refreshTokenUsage(provider, force: force)
+            self.tokenRefreshSequenceProvider = nil
         }
         self.scheduleMemoryPressureRelief()
     }
@@ -762,7 +768,6 @@ final class UsageStore {
 
     enum SessionQuotaWindowSource: String {
         case primary
-        case copilotSecondaryFallback
     }
 
     struct QuotaWarningStateKey: Hashable {
@@ -773,29 +778,18 @@ final class UsageStore {
     struct QuotaWarningState {
         var lastRemaining: Double?
         var firedThresholds: Set<Int> = []
+        var source: SessionQuotaWindowSource?
     }
 
-    private func sessionQuotaWindow(
-        provider: UsageProvider,
-        snapshot: UsageSnapshot) -> (window: RateWindow, source: SessionQuotaWindowSource)?
-    {
-        if let primary = snapshot.primary, Self.isSessionWindow(primary) {
-            return (primary, .primary)
-        }
-        if provider == .copilot, let secondary = snapshot.secondary {
-            return (secondary, .copilotSecondaryFallback)
-        }
-        return nil
-    }
-
-    private static func isSessionWindow(_ window: RateWindow) -> Bool {
-        guard let minutes = window.windowMinutes else { return true }
-        return minutes <= 6 * 60
+    func postQuotaWarning(_ event: QuotaWarningEvent, provider: UsageProvider) {
+        self.sessionQuotaNotifier.postQuotaWarning(
+            event: event,
+            provider: provider,
+            soundEnabled: self.settings.quotaWarningSoundEnabled)
     }
 
     func handleSessionQuotaTransition(provider: UsageProvider, snapshot: UsageSnapshot) {
-        // Session quota notifications are tied to the primary session window. Copilot free plans can
-        // expose only chat quota, so allow Copilot to fall back to secondary for transition tracking.
+        // Session quota notifications are tied to the primary session window.
         guard let sessionWindow = self.sessionQuotaWindow(provider: provider, snapshot: snapshot) else {
             self.lastKnownSessionRemaining.removeValue(forKey: provider)
             self.lastKnownSessionWindowSource.removeValue(forKey: provider)
@@ -870,78 +864,7 @@ final class UsageStore {
         self.sessionQuotaNotifier.post(transition: transition, provider: provider, badge: nil)
     }
 
-    func handleQuotaWarningTransitions(provider: UsageProvider, snapshot: UsageSnapshot) {
-        guard self.settings.quotaWarningNotificationsEnabled else { return }
-
-        let accountDisplayName = self.quotaWarningAccountDisplayName(provider: provider, snapshot: snapshot)
-        self.handleQuotaWarningTransition(
-            provider: provider,
-            window: .session,
-            rateWindow: snapshot.primary,
-            accountDisplayName: accountDisplayName)
-        self.handleQuotaWarningTransition(
-            provider: provider,
-            window: .weekly,
-            rateWindow: snapshot.secondary,
-            accountDisplayName: accountDisplayName)
-    }
-
-    private func handleQuotaWarningTransition(
-        provider: UsageProvider,
-        window: QuotaWarningWindow,
-        rateWindow: RateWindow?,
-        accountDisplayName: String?)
-    {
-        let key = QuotaWarningStateKey(provider: provider, window: window)
-        guard self.settings.quotaWarningEnabled(provider: provider, window: window) else {
-            self.quotaWarningState.removeValue(forKey: key)
-            return
-        }
-        guard let rateWindow else {
-            self.quotaWarningState.removeValue(forKey: key)
-            return
-        }
-
-        let thresholds = self.settings.resolvedQuotaWarningThresholds(provider: provider, window: window)
-        let currentRemaining = rateWindow.remainingPercent
-        var state = self.quotaWarningState[key] ?? QuotaWarningState()
-        let cleared = QuotaWarningNotificationLogic.thresholdsToClear(
-            currentRemaining: currentRemaining,
-            alreadyFired: state.firedThresholds)
-        state.firedThresholds.subtract(cleared)
-
-        if let threshold = QuotaWarningNotificationLogic.crossedThreshold(
-            previousRemaining: state.lastRemaining,
-            currentRemaining: currentRemaining,
-            thresholds: thresholds,
-            alreadyFired: state.firedThresholds)
-        {
-            state.firedThresholds.formUnion(QuotaWarningNotificationLogic.firedThresholdsAfterWarning(
-                threshold: threshold,
-                thresholds: thresholds))
-            self.sessionQuotaNotifier.postQuotaWarning(
-                event: QuotaWarningEvent(
-                    window: window,
-                    threshold: threshold,
-                    currentRemaining: currentRemaining,
-                    accountDisplayName: accountDisplayName),
-                provider: provider,
-                soundEnabled: self.settings.quotaWarningSoundEnabled)
-        }
-
-        state.lastRemaining = currentRemaining
-        self.quotaWarningState[key] = state
-    }
-
-    private func quotaWarningAccountDisplayName(provider: UsageProvider, snapshot: UsageSnapshot) -> String? {
-        guard !self.settings.hidePersonalInfo else { return nil }
-        let account = snapshot.accountEmail(for: provider)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let account, !account.isEmpty else { return nil }
-        return account
-    }
-
-    private func refreshStatus(_ provider: UsageProvider) async {
+    func refreshProviderStatus(_ provider: UsageProvider) async {
         guard self.settings.statusChecksEnabled else { return }
         guard let meta = self.providerMetadata[provider] else { return }
 
@@ -1003,11 +926,6 @@ extension UsageStore {
         }
     }
 
-    func debugAugmentDump() async -> String {
-        await AugmentStatusProbe.latestDumps()
-    }
-
-    // swiftlint:disable:next function_body_length
     func debugLog(for provider: UsageProvider) async -> String {
         if let cached = self.probeLogs[provider], !cached.isEmpty {
             return cached
@@ -1026,63 +944,14 @@ extension UsageStore {
         } else {
             nil
         }
-        let cursorCookieSource = self.settings.cursorCookieSource
-        let cursorCookieHeader = self.settings.cursorCookieHeader
-        let ampCookieSource = self.settings.ampCookieSource
-        let ampCookieHeader = self.settings.ampCookieHeader
-        let ollamaCookieSource = self.settings.ollamaCookieSource
-        let ollamaCookieHeader = self.settings.ollamaCookieHeader
-        let processEnvironment = self.environmentBase
-        let openAIDebugContext = self.openAIAPIKeyDebugContext(processEnvironment: processEnvironment)
-        let azureOpenAIDebugContext = self.azureOpenAIAPIKeyDebugContext(processEnvironment: processEnvironment)
-        let openRouterDebugContext = self.openRouterAPIKeyDebugContext(processEnvironment: processEnvironment)
-        let elevenLabsDebugContext = self.elevenLabsAPIKeyDebugContext(processEnvironment: processEnvironment)
-        let deepSeekHasEnvToken = DeepSeekSettingsReader.apiKey(environment: processEnvironment) != nil
-        let deepSeekHasTokenAccount = self.settings.selectedTokenAccount(for: .deepseek) != nil
-        let deepSeekEnvironment = ProviderRegistry.makeEnvironment(
-            base: processEnvironment,
-            provider: .deepseek,
-            settings: self.settings,
-            tokenOverride: nil)
         let codexFetcher = self.codexFetcher
         let browserDetection = self.browserDetection
         let claudeDebugExecutionContext = self.currentClaudeDebugExecutionContext()
         let text = await Task.detached(priority: .utility) { () -> String in
-            let unimplementedDebugLogMessages: [UsageProvider: String] = [
-                .gemini: "Gemini debug log not yet implemented",
-                .antigravity: "Antigravity debug log not yet implemented",
-                .opencode: "OpenCode debug log not yet implemented",
-                .alibaba: "Alibaba Coding Plan debug log not yet implemented",
-                .alibabatokenplan: "Alibaba Token Plan debug log not yet implemented",
-                .factory: "Droid debug log not yet implemented",
-                .copilot: "Copilot debug log not yet implemented",
-                .manus: "Manus debug log not yet implemented",
-                .vertexai: "Vertex AI debug log not yet implemented",
-                .kilo: "Kilo debug log not yet implemented",
-                .kiro: "Kiro debug log not yet implemented",
-                .kimi: "Kimi debug log not yet implemented",
-                .kimik2: "Kimi K2 debug log not yet implemented",
-                .jetbrains: "JetBrains AI debug log not yet implemented",
-                .mimo: "Xiaomi MiMo debug log not yet implemented",
-                .doubao: "Doubao debug log not yet implemented",
-                .venice: "Venice debug log not yet implemented",
-                .commandcode: "Command Code debug log not yet implemented",
-                .stepfun: "StepFun debug log not yet implemented",
-                .bedrock: "Bedrock debug log not yet implemented",
-                .grok: "Grok debug log not yet implemented",
-                .groq: "Groq debug log not yet implemented",
-                .t3chat: "T3 Chat debug log not yet implemented",
-                .llmproxy: "LLM Proxy debug log not yet implemented",
-                .deepgram: "Deepgram debug log not yet implemented",
-            ]
             let buildText = {
                 switch provider {
                 case .codex:
                     return await codexFetcher.debugRawRateLimits()
-                case .openai:
-                    return Self.apiKeyDebugLine(openAIDebugContext)
-                case .azureopenai:
-                    return Self.apiKeyDebugLine(azureOpenAIDebugContext)
                 case .claude:
                     guard let claudeDebugConfiguration else {
                         return "Claude debug log configuration unavailable"
@@ -1092,67 +961,6 @@ extension UsageStore {
                             browserDetection: browserDetection,
                             configuration: claudeDebugConfiguration)
                     }
-                case .zai:
-                    let resolution = ProviderTokenResolver.zaiResolution()
-                    let hasAny = resolution != nil
-                    let source = resolution?.source.rawValue ?? "none"
-                    return "Z_AI_API_KEY=\(hasAny ? "present" : "missing") source=\(source)"
-                case .synthetic:
-                    let resolution = ProviderTokenResolver.syntheticResolution()
-                    let hasAny = resolution != nil
-                    let source = resolution?.source.rawValue ?? "none"
-                    return "SYNTHETIC_API_KEY=\(hasAny ? "present" : "missing") source=\(source)"
-                case .cursor:
-                    return await Self.debugCursorLog(
-                        browserDetection: browserDetection,
-                        cursorCookieSource: cursorCookieSource,
-                        cursorCookieHeader: cursorCookieHeader)
-                case .minimax:
-                    let tokenResolution = ProviderTokenResolver.minimaxTokenResolution()
-                    let cookieResolution = ProviderTokenResolver.minimaxCookieResolution()
-                    let tokenSource = tokenResolution?.source.rawValue ?? "none"
-                    let cookieSource = cookieResolution?.source.rawValue ?? "none"
-                    return "MINIMAX_API_KEY=\(tokenResolution == nil ? "missing" : "present") " +
-                        "source=\(tokenSource) MINIMAX_COOKIE=\(cookieResolution == nil ? "missing" : "present") " +
-                        "source=\(cookieSource)"
-                case .alibaba:
-                    let resolution = ProviderTokenResolver.alibabaTokenResolution()
-                    let hasAny = resolution != nil
-                    let source = resolution?.source.rawValue ?? "none"
-                    return "ALIBABA_CODING_PLAN_API_KEY=\(hasAny ? "present" : "missing") source=\(source)"
-                case .augment:
-                    return await Self.debugAugmentLog()
-                case .amp:
-                    return await Self.debugAmpLog(
-                        browserDetection: browserDetection,
-                        ampCookieSource: ampCookieSource,
-                        ampCookieHeader: ampCookieHeader)
-                case .ollama:
-                    return await Self.debugOllamaLog(
-                        browserDetection: browserDetection,
-                        ollamaCookieSource: ollamaCookieSource,
-                        ollamaCookieHeader: ollamaCookieHeader)
-                case .openrouter:
-                    return Self.apiKeyDebugLine(openRouterDebugContext)
-                case .elevenlabs:
-                    return Self.apiKeyDebugLine(elevenLabsDebugContext)
-                case .warp:
-                    let resolution = ProviderTokenResolver.warpResolution()
-                    let hasAny = resolution != nil
-                    let source = resolution?.source.rawValue ?? "none"
-                    return "WARP_API_KEY=\(hasAny ? "present" : "missing") source=\(source)"
-                case .deepseek:
-                    return Self.apiKeyDebugLine(
-                        label: "DEEPSEEK_API_KEY",
-                        resolution: ProviderTokenResolver.deepseekResolution(environment: deepSeekEnvironment),
-                        configToken: nil,
-                        hasEnvToken: deepSeekHasEnvToken,
-                        hasTokenAccount: deepSeekHasTokenAccount)
-                case .gemini, .antigravity, .opencode, .opencodego, .alibabatokenplan, .factory, .copilot, .devin,
-                     .vertexai, .kilo, .kiro, .kimi, .kimik2, .moonshot, .jetbrains, .perplexity, .mimo, .doubao,
-                     .abacus, .mistral, .codebuff, .crof, .windsurf, .venice, .manus, .commandcode, .stepfun, .bedrock,
-                     .grok, .groq, .t3chat, .llmproxy, .deepgram:
-                    return unimplementedDebugLogMessages[provider] ?? "Debug log not yet implemented"
                 }
             }
             return await claudeDebugExecutionContext.apply {
@@ -1272,192 +1080,6 @@ extension UsageStore {
         #endif
     }
 
-    private struct APIKeyDebugContext {
-        let label: String
-        let resolution: ProviderTokenResolution?
-        let configToken: String?
-        let hasEnvToken: Bool
-        let hasTokenAccount: Bool
-    }
-
-    private func openAIAPIKeyDebugContext(processEnvironment: [String: String]) -> APIKeyDebugContext {
-        let config = self.settings.providerConfig(for: .openai)
-        let environment = ProviderConfigEnvironment.applyAPIKeyOverride(
-            base: processEnvironment,
-            provider: .openai,
-            config: config)
-        return APIKeyDebugContext(
-            label: "OPENAI_API_KEY",
-            resolution: ProviderTokenResolver.openAIAPIResolution(environment: environment),
-            configToken: config?.sanitizedAPIKey,
-            hasEnvToken: OpenAIAPISettingsReader.apiKey(environment: processEnvironment) != nil,
-            hasTokenAccount: false)
-    }
-
-    private func azureOpenAIAPIKeyDebugContext(processEnvironment: [String: String]) -> APIKeyDebugContext {
-        let config = self.settings.providerConfig(for: .azureopenai)
-        let environment = ProviderConfigEnvironment.applyProviderConfigOverrides(
-            base: processEnvironment,
-            provider: .azureopenai,
-            config: config)
-        return APIKeyDebugContext(
-            label: "AZURE_OPENAI_API_KEY",
-            resolution: ProviderTokenResolver.azureOpenAIResolution(environment: environment),
-            configToken: config?.sanitizedAPIKey,
-            hasEnvToken: AzureOpenAISettingsReader.apiKey(environment: processEnvironment) != nil,
-            hasTokenAccount: false)
-    }
-
-    private func openRouterAPIKeyDebugContext(processEnvironment: [String: String]) -> APIKeyDebugContext {
-        let config = self.settings.providerConfig(for: .openrouter)
-        let environment = ProviderConfigEnvironment.applyAPIKeyOverride(
-            base: processEnvironment,
-            provider: .openrouter,
-            config: config)
-        return APIKeyDebugContext(
-            label: "OPENROUTER_API_KEY",
-            resolution: ProviderTokenResolver.openRouterResolution(environment: environment),
-            configToken: config?.sanitizedAPIKey,
-            hasEnvToken: OpenRouterSettingsReader.apiToken(environment: processEnvironment) != nil,
-            hasTokenAccount: false)
-    }
-
-    private func elevenLabsAPIKeyDebugContext(processEnvironment: [String: String]) -> APIKeyDebugContext {
-        let config = self.settings.providerConfig(for: .elevenlabs)
-        let environment = ProviderConfigEnvironment.applyAPIKeyOverride(
-            base: processEnvironment,
-            provider: .elevenlabs,
-            config: config)
-        return APIKeyDebugContext(
-            label: "ELEVENLABS_API_KEY",
-            resolution: ProviderTokenResolver.elevenLabsResolution(environment: environment),
-            configToken: config?.sanitizedAPIKey,
-            hasEnvToken: ElevenLabsSettingsReader.apiKey(environment: processEnvironment) != nil,
-            hasTokenAccount: false)
-    }
-
-    private nonisolated static func apiKeyDebugLine(_ context: APIKeyDebugContext) -> String {
-        self.apiKeyDebugLine(
-            label: context.label,
-            resolution: context.resolution,
-            configToken: context.configToken,
-            hasEnvToken: context.hasEnvToken,
-            hasTokenAccount: context.hasTokenAccount)
-    }
-
-    private nonisolated static func apiKeyDebugLine(
-        label: String,
-        resolution: ProviderTokenResolution?,
-        configToken: String?,
-        hasEnvToken: Bool,
-        hasTokenAccount: Bool = false) -> String
-    {
-        let hasAny = resolution != nil
-        let hasConfigToken = !(configToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        let source: String = if resolution == nil {
-            "none"
-        } else if hasTokenAccount, hasEnvToken {
-            "settings-token-account (overrides env)"
-        } else if hasTokenAccount {
-            "settings-token-account"
-        } else if hasConfigToken, hasEnvToken {
-            "settings-config (overrides env)"
-        } else if hasConfigToken {
-            "settings-config"
-        } else {
-            resolution?.source.rawValue ?? "environment"
-        }
-        return "\(label)=\(hasAny ? "present" : "missing") source=\(source)"
-    }
-
-    private static func debugCursorLog(
-        browserDetection: BrowserDetection,
-        cursorCookieSource: ProviderCookieSource,
-        cursorCookieHeader: String) async -> String
-    {
-        await runWithTimeout(seconds: 15) {
-            var lines: [String] = []
-
-            do {
-                let probe = CursorStatusProbe(browserDetection: browserDetection)
-                let snapshot: CursorStatusSnapshot = if cursorCookieSource == .manual,
-                                                        let normalizedHeader = CookieHeaderNormalizer
-                                                            .normalize(cursorCookieHeader)
-                {
-                    try await probe.fetchWithManualCookies(normalizedHeader)
-                } else {
-                    try await probe.fetch { msg in lines.append("[cursor-cookie] \(msg)") }
-                }
-
-                lines.append("")
-                lines.append("Cursor Status Summary:")
-                lines.append("membershipType=\(snapshot.membershipType ?? "nil")")
-                lines.append("accountEmail=\(snapshot.accountEmail ?? "nil")")
-                lines.append("planPercentUsed=\(snapshot.planPercentUsed)%")
-                lines.append("planUsedUSD=$\(snapshot.planUsedUSD)")
-                lines.append("planLimitUSD=$\(snapshot.planLimitUSD)")
-                lines.append("onDemandUsedUSD=$\(snapshot.onDemandUsedUSD)")
-                lines.append("onDemandLimitUSD=\(snapshot.onDemandLimitUSD.map { "$\($0)" } ?? "nil")")
-                if let teamUsed = snapshot.teamOnDemandUsedUSD {
-                    lines.append("teamOnDemandUsedUSD=$\(teamUsed)")
-                }
-                if let teamLimit = snapshot.teamOnDemandLimitUSD {
-                    lines.append("teamOnDemandLimitUSD=$\(teamLimit)")
-                }
-                lines.append("billingCycleEnd=\(snapshot.billingCycleEnd?.description ?? "nil")")
-
-                if let rawJSON = snapshot.rawJSON {
-                    lines.append("")
-                    lines.append("Raw API Response:")
-                    lines.append(rawJSON)
-                }
-
-                return lines.joined(separator: "\n")
-            } catch {
-                lines.append("")
-                lines.append("Cursor probe failed: \(error.localizedDescription)")
-                return lines.joined(separator: "\n")
-            }
-        }
-    }
-
-    private static func debugAugmentLog() async -> String {
-        await runWithTimeout(seconds: 15) {
-            let probe = AugmentStatusProbe()
-            return await probe.debugRawProbe()
-        }
-    }
-
-    private static func debugAmpLog(
-        browserDetection: BrowserDetection,
-        ampCookieSource: ProviderCookieSource,
-        ampCookieHeader: String) async -> String
-    {
-        await runWithTimeout(seconds: 15) {
-            let fetcher = AmpUsageFetcher(browserDetection: browserDetection)
-            let manualHeader = ampCookieSource == .manual
-                ? CookieHeaderNormalizer.normalize(ampCookieHeader)
-                : nil
-            return await fetcher.debugRawProbe(cookieHeaderOverride: manualHeader)
-        }
-    }
-
-    private static func debugOllamaLog(
-        browserDetection: BrowserDetection,
-        ollamaCookieSource: ProviderCookieSource,
-        ollamaCookieHeader: String) async -> String
-    {
-        await runWithTimeout(seconds: 15) {
-            let fetcher = OllamaUsageFetcher(browserDetection: browserDetection)
-            let manualHeader = ollamaCookieSource == .manual
-                ? CookieHeaderNormalizer.normalize(ollamaCookieHeader)
-                : nil
-            return await fetcher.debugRawProbe(
-                cookieHeaderOverride: manualHeader,
-                manualCookieMode: ollamaCookieSource == .manual)
-        }
-    }
-
     private func detectVersions() {
         let implementations = ProviderCatalog.all
         let browserDetection = self.browserDetection
@@ -1522,11 +1144,6 @@ extension UsageStore {
             return
         }
 
-        if let override = self._test_tokenUsageRefreshOverride {
-            await override(provider, force)
-            return
-        }
-
         if Self.tokenCostRequiresProviderSnapshot(provider) {
             if let snapshot = self.tokenSnapshot(fromProviderSnapshot: self.snapshots[provider], provider: provider) {
                 self.tokenSnapshots[provider] = snapshot
@@ -1541,7 +1158,7 @@ extension UsageStore {
             return
         }
 
-        guard self.settings.costUsageEnabled else {
+        guard self.settings.isCostUsageEffectivelyEnabled(for: provider) else {
             self.tokenSnapshots.removeValue(forKey: provider)
             self.tokenErrors[provider] = nil
             self.tokenFailureGates[provider]?.reset()
@@ -1577,6 +1194,15 @@ extension UsageStore {
         self.tokenRefreshInFlight.insert(provider)
         defer { self.tokenRefreshInFlight.remove(provider) }
 
+        if let override = self._test_tokenUsageRefreshOverride {
+            await override(provider, force)
+            if Task.isCancelled {
+                self.lastTokenFetchAt.removeValue(forKey: provider)
+                self.lastTokenFetchScope.removeValue(forKey: provider)
+            }
+            return
+        }
+
         let startedAt = Date()
         let providerText = provider.rawValue
         self.tokenCostLogger
@@ -1585,13 +1211,7 @@ extension UsageStore {
         do {
             let fetcher = self.costUsageFetcher
             let timeoutSeconds = self.tokenFetchTimeout
-            let environment = provider == .bedrock
-                ? ProviderRegistry.makeEnvironment(
-                    base: self.environmentBase,
-                    provider: provider,
-                    settings: self.settings,
-                    tokenOverride: nil)
-                : self.environmentBase
+            let environment = self.environmentBase
             // Codex cost usage scans local session logs from this machine. That data is
             // intentionally presented as provider-level local telemetry rather than managed-account
             // remote state, so managed Codex account selection does not retarget that fetch.
@@ -1616,6 +1236,7 @@ extension UsageStore {
                 guard let snapshot = try await group.next() else { throw CancellationError() }
                 return snapshot
             }
+            try Task.checkCancellation()
 
             guard !snapshot.daily.isEmpty else {
                 self.tokenSnapshots.removeValue(forKey: provider)
@@ -1640,7 +1261,11 @@ extension UsageStore {
             self.tokenFailureGates[provider]?.recordSuccess()
             self.persistWidgetSnapshot(reason: "token-usage")
         } catch {
-            if error is CancellationError { return }
+            if error is CancellationError {
+                self.lastTokenFetchAt.removeValue(forKey: provider)
+                self.lastTokenFetchScope.removeValue(forKey: provider)
+                return
+            }
             let duration = Date().timeIntervalSince(startedAt)
             let msg = error.localizedDescription
             let durationText = String(format: "%.2f", duration)

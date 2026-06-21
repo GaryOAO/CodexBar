@@ -28,7 +28,6 @@ public struct ProviderDiagnosticExport: Codable, Sendable {
     public let fetchAttempts: [ProviderDiagnosticFetchAttempt]
     public let error: ProviderDiagnosticError?
     public let settings: ProviderDiagnosticSettingsSummary
-    public let details: ProviderDiagnosticDetails?
 
     public init(
         schemaVersion: String = "1.0",
@@ -41,8 +40,7 @@ public struct ProviderDiagnosticExport: Codable, Sendable {
         usage: ProviderDiagnosticUsageSummary?,
         fetchAttempts: [ProviderDiagnosticFetchAttempt],
         error: ProviderDiagnosticError?,
-        settings: ProviderDiagnosticSettingsSummary,
-        details: ProviderDiagnosticDetails?)
+        settings: ProviderDiagnosticSettingsSummary)
     {
         self.schemaVersion = schemaVersion
         self.timestamp = timestamp
@@ -55,7 +53,6 @@ public struct ProviderDiagnosticExport: Codable, Sendable {
         self.fetchAttempts = fetchAttempts
         self.error = error
         self.settings = settings
-        self.details = details
     }
 }
 
@@ -85,10 +82,20 @@ public struct ProviderDiagnosticAuthSummary: Codable, Sendable {
 
 public struct ProviderDiagnosticUsageSummary: Codable, Sendable {
     public let updatedAt: Date
+    public let dataConfidence: String
     public let windows: [ProviderDiagnosticRateWindow]
     public let extraWindowCount: Int
     public let providerCostPresent: Bool
     public let providerSpecificData: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case updatedAt
+        case dataConfidence
+        case windows
+        case extraWindowCount
+        case providerCostPresent
+        case providerSpecificData
+    }
 
     public init(from snapshot: UsageSnapshot) {
         var windows: [ProviderDiagnosticRateWindow] = []
@@ -109,23 +116,25 @@ public struct ProviderDiagnosticUsageSummary: Codable, Sendable {
         }
 
         var providerSpecificData: [String] = []
-        if snapshot.kiroUsage != nil { providerSpecificData.append("kiroUsage") }
-        if snapshot.ampUsage != nil { providerSpecificData.append("ampUsage") }
-        if snapshot.zaiUsage != nil { providerSpecificData.append("zaiUsage") }
-        if snapshot.minimaxUsage != nil { providerSpecificData.append("minimaxUsage") }
-        if snapshot.deepseekUsage != nil { providerSpecificData.append("deepseekUsage") }
-        if snapshot.openRouterUsage != nil { providerSpecificData.append("openRouterUsage") }
-        if snapshot.openAIAPIUsage != nil { providerSpecificData.append("openAIAPIUsage") }
         if snapshot.claudeAdminAPIUsage != nil { providerSpecificData.append("claudeAdminAPIUsage") }
-        if snapshot.mistralUsage != nil { providerSpecificData.append("mistralUsage") }
-        if snapshot.deepgramUsage != nil { providerSpecificData.append("deepgramUsage") }
-        if snapshot.cursorRequests != nil { providerSpecificData.append("cursorRequests") }
 
         self.updatedAt = snapshot.updatedAt
+        self.dataConfidence = snapshot.dataConfidence.rawValue
         self.windows = windows
         self.extraWindowCount = snapshot.extraRateWindows?.count ?? 0
         self.providerCostPresent = snapshot.providerCost != nil
         self.providerSpecificData = providerSpecificData.sorted()
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        self.dataConfidence = try container.decodeIfPresent(String.self, forKey: .dataConfidence)
+            ?? UsageDataConfidence.unknown.rawValue
+        self.windows = try container.decode([ProviderDiagnosticRateWindow].self, forKey: .windows)
+        self.extraWindowCount = try container.decode(Int.self, forKey: .extraWindowCount)
+        self.providerCostPresent = try container.decode(Bool.self, forKey: .providerCostPresent)
+        self.providerSpecificData = try container.decode([String].self, forKey: .providerSpecificData)
     }
 }
 
@@ -262,23 +271,6 @@ public struct ProviderDiagnosticError: Codable, Sendable {
         if error is ProviderEndpointOverrideError {
             return "configuration"
         }
-        if let minimaxError = error as? MiniMaxUsageError {
-            switch minimaxError {
-            case .networkError: return "network"
-            case .invalidCredentials: return "auth"
-            case .apiError: return "api"
-            case .parseFailed: return "parse"
-            }
-        }
-        if let alibabaError = error as? AlibabaCodingPlanUsageError {
-            switch alibabaError {
-            case .networkError: return "network"
-            case .loginRequired, .invalidCredentials: return "auth"
-            case .apiError, .apiKeyUnavailableInRegion: return "api"
-            case .parseFailed: return "parse"
-            }
-        }
-        if error is MiniMaxSettingsError || error is MiniMaxAPISettingsError { return "auth" }
         return ProviderDiagnosticFetchAttempt.errorCategoryLabel(error.localizedDescription)
     }
 
@@ -307,78 +299,6 @@ public struct ProviderDiagnosticSettingsSummary: Codable, Sendable {
     public init(sourceMode: ProviderSourceMode, apiRegion: String? = nil) {
         self.sourceMode = sourceMode.rawValue
         self.apiRegion = apiRegion
-    }
-}
-
-public enum ProviderDiagnosticDetails: Codable, Sendable {
-    case minimax(MiniMaxDiagnosticDetails)
-
-    private enum CodingKeys: String, CodingKey {
-        case type
-        case minimax
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-        switch type {
-        case "minimax":
-            self = try .minimax(container.decode(MiniMaxDiagnosticDetails.self, forKey: .minimax))
-        default:
-            throw DecodingError.dataCorruptedError(
-                forKey: .type,
-                in: container,
-                debugDescription: "Unknown provider diagnostic detail type")
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case let .minimax(details):
-            try container.encode("minimax", forKey: .type)
-            try container.encode(details, forKey: .minimax)
-        }
-    }
-}
-
-public struct MiniMaxDiagnosticDetails: Codable, Sendable {
-    public let planName: String?
-    public let availablePrompts: Int?
-    public let currentPrompts: Int?
-    public let remainingPrompts: Int?
-    public let windowMinutes: Int?
-    public let usedPercent: Double?
-    public let resetsAt: Date?
-    public let services: [MiniMaxDiagnosticServiceUsage]?
-    public let billingSummaryPresent: Bool
-
-    public init(from snapshot: MiniMaxUsageSnapshot) {
-        self.planName = snapshot.planName
-        self.availablePrompts = snapshot.availablePrompts
-        self.currentPrompts = snapshot.currentPrompts
-        self.remainingPrompts = snapshot.remainingPrompts
-        self.windowMinutes = snapshot.windowMinutes
-        self.usedPercent = snapshot.usedPercent
-        self.resetsAt = snapshot.resetsAt
-        self.services = snapshot.services?.map { MiniMaxDiagnosticServiceUsage(from: $0) }
-        self.billingSummaryPresent = snapshot.billingSummary != nil
-    }
-}
-
-public struct MiniMaxDiagnosticServiceUsage: Codable, Sendable {
-    public let displayName: String
-    public let percent: Double
-    public let windowType: String
-    public let resetsAt: Date?
-    public let hasResetDescription: Bool
-
-    public init(from service: MiniMaxServiceUsage) {
-        self.displayName = service.displayName
-        self.percent = service.percent
-        self.windowType = service.windowType
-        self.resetsAt = service.resetsAt
-        self.hasResetDescription = !service.resetDescription.isEmpty
     }
 }
 
@@ -413,9 +333,7 @@ public enum ProviderDiagnosticExportBuilder {
         let usage = input.outcome.usageSnapshot.map { ProviderDiagnosticUsageSummary(from: $0) }
         let error = input.outcome.failureError
             .map { ProviderDiagnosticError(from: $0, authConfigured: resolvedAuth.configured) }
-        let settingsSummary = ProviderDiagnosticSettingsSummary(
-            sourceMode: input.sourceMode,
-            apiRegion: Self.safeAPIRegion(provider: input.provider, settings: input.settings))
+        let settingsSummary = ProviderDiagnosticSettingsSummary(sourceMode: input.sourceMode)
 
         return ProviderDiagnosticExport(
             timestamp: Date(),
@@ -427,22 +345,7 @@ public enum ProviderDiagnosticExportBuilder {
             usage: usage,
             fetchAttempts: input.outcome.attempts.map { ProviderDiagnosticFetchAttempt(from: $0) },
             error: error,
-            settings: settingsSummary,
-            details: Self.details(provider: input.provider, outcome: input.outcome))
-    }
-
-    private static func safeAPIRegion(provider: UsageProvider, settings: ProviderSettingsSnapshot?) -> String? {
-        guard provider == .minimax else { return nil }
-        return settings?.minimax?.apiRegion.rawValue ?? "global"
-    }
-
-    private static func details(provider: UsageProvider, outcome: ProviderFetchOutcome) -> ProviderDiagnosticDetails? {
-        guard provider == .minimax,
-              let usage = outcome.usageSnapshot?.minimaxUsage
-        else {
-            return nil
-        }
-        return .minimax(MiniMaxDiagnosticDetails(from: usage))
+            settings: settingsSummary)
     }
 }
 

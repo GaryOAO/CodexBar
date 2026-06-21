@@ -50,7 +50,7 @@ struct AppGroupSupportTests {
         legacyDefaults.removePersistentDomain(forName: legacySuite)
 
         legacyDefaults.set(true, forKey: "debugDisableKeychainAccess")
-        legacyDefaults.set(UsageProvider.cursor.rawValue, forKey: "widgetSelectedProvider")
+        legacyDefaults.set(UsageProvider.claude.rawValue, forKey: "widgetSelectedProvider")
 
         let legacySnapshotURL = root.appendingPathComponent(
             "legacy/widget-snapshot.json",
@@ -73,7 +73,7 @@ struct AppGroupSupportTests {
         #expect(result.copiedSnapshot)
         #expect(result.copiedDefaults == 2)
         #expect(currentDefaults.bool(forKey: "debugDisableKeychainAccess"))
-        #expect(currentDefaults.string(forKey: "widgetSelectedProvider") == UsageProvider.cursor.rawValue)
+        #expect(currentDefaults.string(forKey: "widgetSelectedProvider") == UsageProvider.claude.rawValue)
         #expect(fileManager.fileExists(atPath: currentSnapshotURL.path))
         #expect(
             standardDefaults.integer(forKey: AppGroupSupport.migrationVersionKey)
@@ -105,7 +105,7 @@ struct AppGroupSupportTests {
         currentDefaults.set(false, forKey: "debugDisableKeychainAccess")
         currentDefaults.set(UsageProvider.codex.rawValue, forKey: "widgetSelectedProvider")
         legacyDefaults.set(true, forKey: "debugDisableKeychainAccess")
-        legacyDefaults.set(UsageProvider.cursor.rawValue, forKey: "widgetSelectedProvider")
+        legacyDefaults.set(UsageProvider.claude.rawValue, forKey: "widgetSelectedProvider")
 
         let result = AppGroupSupport.migrateLegacyDataIfNeeded(
             bundleID: "com.steipete.codexbar",

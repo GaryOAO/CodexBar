@@ -7,10 +7,7 @@ import Testing
 @Suite(.serialized)
 struct StatusItemIconObservationSignatureTests {
     private func makeController(suiteName: String) -> (SettingsStore, UsageStore, StatusItemController) {
-        let settings = SettingsStore(
-            configStore: testConfigStore(suiteName: suiteName),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = testSettingsStore(suiteName: suiteName)
         settings.statusChecksEnabled = true
         settings.refreshFrequency = .manual
         settings.menuBarShowsBrandIconWithPercent = false
@@ -160,7 +157,7 @@ struct StatusItemIconObservationSignatureTests {
     }
 
     @Test
-    func `merged store icon observation signature changes when non primary status changes`() throws {
+    func `merged store icon observation signature ignores non primary status changes`() throws {
         let (settings, store, controller) = self.makeController(
             suiteName: "StatusItemIconObservationSignatureTests-merged-secondary-status")
         defer { controller.releaseStatusItemsForTesting() }
@@ -175,7 +172,7 @@ struct StatusItemIconObservationSignatureTests {
             description: "Claude status issue",
             updatedAt: Date(timeIntervalSince1970: 20))
 
-        #expect(controller.storeIconObservationSignature() != baseline)
+        #expect(controller.storeIconObservationSignature() == baseline)
     }
 
     @Test
@@ -196,6 +193,45 @@ struct StatusItemIconObservationSignatureTests {
             updatedAt: Date(timeIntervalSince1970: 20))
 
         #expect(controller.storeIconObservationSignature() != baseline)
+    }
+
+    @Test
+    func `store icon observation signature changes when hide critters toggles`() {
+        let (settings, _, controller) = self.makeController(
+            suiteName: "StatusItemIconObservationSignatureTests-hide-critters")
+        defer { controller.releaseStatusItemsForTesting() }
+
+        settings.menuBarHidesCritters = false
+        let baseline = controller.storeIconObservationSignature()
+
+        settings.menuBarHidesCritters = true
+
+        #expect(controller.storeIconObservationSignature() != baseline)
+    }
+
+    @Test
+    func `updateIcons reuses a precomputed store icon signature instead of recomputing it`() {
+        let (_, _, controller) = self.makeController(
+            suiteName: "StatusItemIconObservationSignatureTests-precomputed-reuse")
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let precomputed = "precomputed-store-icon-signature-sentinel"
+        controller.updateIcons(precomputedStoreIconSignature: precomputed)
+
+        // A supplied signature must be stored verbatim; if updateIcons recomputed it, the gate would
+        // never equal the sentinel value.
+        #expect(controller.lastObservedStoreIconWorkSignature == precomputed)
+    }
+
+    @Test
+    func `updateIcons recomputes the store icon signature when none is provided`() {
+        let (_, _, controller) = self.makeController(
+            suiteName: "StatusItemIconObservationSignatureTests-recompute-default")
+        defer { controller.releaseStatusItemsForTesting() }
+
+        controller.updateIcons()
+
+        #expect(controller.lastObservedStoreIconWorkSignature == controller.storeIconObservationSignature())
     }
 
     private static func makeSnapshot(

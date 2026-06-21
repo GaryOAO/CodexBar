@@ -6,25 +6,21 @@ extension SettingsStore {
         if Self.isBalanceOnlyProvider(provider) {
             return .automatic
         }
-        if provider == .openrouter {
-            let raw = self.menuBarMetricPreferencesRaw[provider.rawValue] ?? ""
-            let preference = MenuBarMetricPreference(rawValue: raw) ?? .automatic
-            switch preference {
-            case .automatic, .primary:
-                return preference
-            case .secondary, .average, .tertiary, .extraUsage:
-                return .automatic
-            }
-        }
         let raw = self.menuBarMetricPreferencesRaw[provider.rawValue] ?? ""
         let preference = MenuBarMetricPreference(rawValue: raw) ?? .automatic
         if preference == .average, !self.menuBarMetricSupportsAverage(for: provider) {
+            return .automatic
+        }
+        if preference == .primaryAndSecondary, !self.menuBarMetricSupportsPrimaryAndSecondary(for: provider) {
             return .automatic
         }
         if preference == .tertiary, !self.menuBarMetricSupportsTertiary(for: provider) {
             return .automatic
         }
         if preference == .extraUsage, !self.menuBarMetricSupportsExtraUsage(for: provider) {
+            return .automatic
+        }
+        if preference == .monthlyPlan {
             return .automatic
         }
         return preference
@@ -35,13 +31,8 @@ extension SettingsStore {
             self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
             return
         }
-        if provider == .openrouter {
-            switch preference {
-            case .automatic, .primary:
-                self.menuBarMetricPreferencesRaw[provider.rawValue] = preference.rawValue
-            case .secondary, .average, .tertiary, .extraUsage:
-                self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
-            }
+        if preference == .primaryAndSecondary, !self.menuBarMetricSupportsPrimaryAndSecondary(for: provider) {
+            self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
             return
         }
         if preference == .tertiary, !self.menuBarMetricSupportsTertiary(for: provider) {
@@ -52,26 +43,31 @@ extension SettingsStore {
             self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
             return
         }
+        if preference == .monthlyPlan {
+            self.menuBarMetricPreferencesRaw[provider.rawValue] = MenuBarMetricPreference.automatic.rawValue
+            return
+        }
         self.menuBarMetricPreferencesRaw[provider.rawValue] = preference.rawValue
     }
 
-    func menuBarMetricSupportsAverage(for provider: UsageProvider) -> Bool {
-        provider == .gemini
+    func menuBarMetricSupportsAverage(for _: UsageProvider) -> Bool {
+        false
     }
 
-    func menuBarMetricSupportsTertiary(for provider: UsageProvider) -> Bool {
-        provider == .cursor || provider == .perplexity || provider == .zai
+    func menuBarMetricSupportsPrimaryAndSecondary(for provider: UsageProvider) -> Bool {
+        provider == .codex
     }
 
-    func menuBarMetricSupportsTertiary(for provider: UsageProvider, snapshot: UsageSnapshot?) -> Bool {
-        if provider == .cursor || provider == .zai {
-            return snapshot?.tertiary != nil
-        }
-        return self.menuBarMetricSupportsTertiary(for: provider)
+    func menuBarMetricSupportsTertiary(for _: UsageProvider) -> Bool {
+        false
+    }
+
+    func menuBarMetricSupportsTertiary(for provider: UsageProvider, snapshot _: UsageSnapshot?) -> Bool {
+        self.menuBarMetricSupportsTertiary(for: provider)
     }
 
     func menuBarMetricSupportsExtraUsage(for provider: UsageProvider) -> Bool {
-        provider == .cursor || provider == .claude
+        provider == .claude
     }
 
     func menuBarMetricSupportsExtraUsage(for provider: UsageProvider, snapshot: UsageSnapshot?) -> Bool {
@@ -96,20 +92,27 @@ extension SettingsStore {
     }
 
     func isCostUsageEffectivelyEnabled(for provider: UsageProvider) -> Bool {
-        self.costUsageEnabled
-            && ProviderDescriptorRegistry.descriptor(for: provider).tokenCost.supportsTokenCost
+        guard ProviderDescriptorRegistry.descriptor(for: provider).tokenCost.supportsTokenCost else {
+            return false
+        }
+        // Claude cost via the proxy is a remote cross-machine total (not a local log
+        // scan), so it lights up whenever a proxy profile is active — independent of
+        // the local cost-usage toggle.
+        if provider == .claude, Self.isClaudeProxyCostActive() {
+            return true
+        }
+        return self.costUsageEnabled
+    }
+
+    static func isClaudeProxyCostActive() -> Bool {
+        ClaudeProxyProfileStore.effectiveProxy() != nil
     }
 
     var resetTimeDisplayStyle: ResetTimeDisplayStyle {
         self.resetTimesShowAbsolute ? .absolute : .countdown
     }
 
-    static func isBalanceOnlyProvider(_ provider: UsageProvider) -> Bool {
-        switch provider {
-        case .deepseek, .mistral, .kimik2, .moonshot:
-            true
-        default:
-            false
-        }
+    static func isBalanceOnlyProvider(_: UsageProvider) -> Bool {
+        false
     }
 }

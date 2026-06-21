@@ -41,11 +41,7 @@ final class CodexAccountPromotionTestContainer {
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         defaults.set(true, forKey: "providerDetectionCompleted")
-        self.settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suiteName),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        self.settings = SettingsStore(userDefaults: defaults, configStore: testConfigStore(suiteName: suiteName))
         self.settings._test_activeManagedCodexAccount = nil
         self.settings._test_activeManagedCodexRemoteHomePath = nil
         self.settings._test_unreadableManagedCodexAccountStore = false

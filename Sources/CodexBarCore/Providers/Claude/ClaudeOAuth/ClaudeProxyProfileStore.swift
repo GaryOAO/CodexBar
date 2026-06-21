@@ -86,8 +86,15 @@ public enum ClaudeProxyProfileStore {
         guard let env = parsed["env"] as? [String: Any] else { return nil }
         let baseURL = (env["ANTHROPIC_BASE_URL"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let token = (env["ANTHROPIC_API_KEY"] as? String)?
+        // Claude Code stores a bearer-token proxy key under ANTHROPIC_AUTH_TOKEN
+        // (sent as `Authorization: Bearer`); ANTHROPIC_API_KEY is the `x-api-key`
+        // variant. Prefer AUTH_TOKEN, fall back to API_KEY, so a machine routing
+        // Claude Code through the proxy with either convention hydrates correctly.
+        let authToken = (env["ANTHROPIC_AUTH_TOKEN"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let apiKey = (env["ANTHROPIC_API_KEY"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let token = authToken.isEmpty ? apiKey : authToken
         if baseURL.isEmpty, token.isEmpty {
             return nil
         }
@@ -148,6 +155,25 @@ public enum ClaudeProxyProfileStore {
             profiles.first!
         }
         return self.hydrate(selected)
+    }
+
+    /// The proxy (baseURL + token) to actually use, requiring both fields.
+    /// Prefers a configured profile; otherwise falls back to the local Claude
+    /// Code settings (`~/.claude/settings.json`) so a machine that already routes
+    /// Claude Code through the proxy needs zero CodexBar setup — important for the
+    /// multi-machine cross-machine-cost use case.
+    public static func effectiveProxy() -> (baseURL: String, token: String)? {
+        if let profile = self.activeProfile() {
+            let baseURL = profile.trimmedBaseURL
+            let token = profile.trimmedToken
+            if !baseURL.isEmpty, !token.isEmpty {
+                return (baseURL, token)
+            }
+        }
+        if let auto = self.resolveAutoConfig(), !auto.baseURL.isEmpty, !auto.token.isEmpty {
+            return (auto.baseURL, auto.token)
+        }
+        return nil
     }
 
     private static func migrateLegacyIfNeeded() {

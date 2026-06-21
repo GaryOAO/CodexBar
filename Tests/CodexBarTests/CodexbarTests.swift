@@ -49,179 +49,62 @@ struct CodexBarTests {
     }
 
     @Test
-    func `antigravity icon falls back to tertiary when leading lanes are missing`() {
+    func `copying rate windows preserves surviving payloads`() {
+        let updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let identity = ProviderIdentitySnapshot(
+            providerID: .codex,
+            accountEmail: "test@example.com",
+            accountOrganization: "Example",
+            loginMethod: "OAuth")
         let snapshot = UsageSnapshot(
             primary: nil,
             secondary: nil,
-            tertiary: RateWindow(usedPercent: 80, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            updatedAt: Date())
+            tertiary: RateWindow(usedPercent: 30, windowMinutes: 60, resetsAt: nil, resetDescription: nil),
+            subscriptionExpiresAt: updatedAt.addingTimeInterval(100),
+            subscriptionRenewsAt: updatedAt.addingTimeInterval(200),
+            updatedAt: updatedAt,
+            identity: identity)
 
-        let remaining = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, style: .antigravity)
-        #expect(remaining.primary == 20)
-        #expect(remaining.secondary == nil)
+        let copied = snapshot.with(
+            primary: RateWindow(usedPercent: 40, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
+            secondary: RateWindow(usedPercent: 50, windowMinutes: 10080, resetsAt: nil, resetDescription: nil))
+
+        #expect(copied.primary?.usedPercent == 40)
+        #expect(copied.secondary?.usedPercent == 50)
+        #expect(copied.tertiary?.usedPercent == 30)
+        #expect(copied.subscriptionExpiresAt == updatedAt.addingTimeInterval(100))
+        #expect(copied.subscriptionRenewsAt == updatedAt.addingTimeInterval(200))
+        #expect(copied.identity?.accountOrganization == "Example")
     }
 
     @Test
-    func `antigravity icon uses next distinct fallback lane`() {
-        let snapshot = UsageSnapshot(
-            primary: nil,
-            secondary: RateWindow(usedPercent: 30, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            tertiary: RateWindow(usedPercent: 60, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            updatedAt: Date())
-
-        let remaining = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, style: .antigravity)
-        #expect(remaining.primary == 70)
-        #expect(remaining.secondary == 40)
-    }
-
-    @Test
-    func `perplexity icon falls back to purchased lane when bonus is exhausted`() {
-        let snapshot = UsageSnapshot(
-            primary: nil,
-            secondary: RateWindow(usedPercent: 100, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            tertiary: RateWindow(usedPercent: 20, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            updatedAt: Date())
-
-        let remaining = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, style: .perplexity)
-        #expect(remaining.primary == 80)
-        #expect(remaining.secondary == 0)
-    }
-
-    @Test
-    func `perplexity icon skips exhausted recurring lane when purchased credits remain`() {
-        let snapshot = UsageSnapshot(
-            primary: RateWindow(usedPercent: 100, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            secondary: RateWindow(usedPercent: 100, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            tertiary: RateWindow(usedPercent: 20, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            updatedAt: Date())
-
-        let remaining = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, style: .perplexity)
-        #expect(remaining.primary == 80)
-        #expect(remaining.secondary == 0)
-    }
-
-    @Test
-    func `perplexity icon prefers purchased lane before bonus`() {
-        let snapshot = UsageSnapshot(
-            primary: nil,
-            secondary: RateWindow(usedPercent: 20, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            tertiary: RateWindow(usedPercent: 45, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            updatedAt: Date())
-
-        let remaining = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, style: .perplexity)
-        #expect(remaining.primary == 55)
-        #expect(remaining.secondary == 80)
-    }
-
-    @Test
-    func `kimi icon renders primary bar when secondary is nil`() throws {
-        // Regression: Kimi account connected with usage, but no progress bar shown (issue #1043).
-        // When secondary (rate limit) is absent, the icon renderer must still show
-        // the primary (weekly quota) bar.
-        let snapshot = UsageSnapshot(
-            primary: RateWindow(usedPercent: 18.3, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            secondary: nil,
-            updatedAt: Date())
-
-        let remaining = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, style: .kimi)
-
-        guard let primaryRemaining = remaining.primary else {
-            Issue.record("remaining.primary was nil after IconRemainingResolver check")
-            return
-        }
-        #expect(primaryRemaining > 0) // 81.7% remaining
-        #expect(remaining.secondary == nil)
-
-        let image = IconRenderer.makeIcon(
-            primaryRemaining: remaining.primary,
-            weeklyRemaining: remaining.secondary,
-            creditsRemaining: nil,
-            stale: false,
-            style: .kimi)
-        #expect(image.size.width > 0)
-        #expect(image.isTemplate)
-
-        // Prove the primary bar is actually rendered using pixel inspection.
-        // Top bar rect: x ∈ [3, 33], y ∈ [19, 31] in the 36×36 canvas (barXPx=3, barWidthPx=30, y=19, h=12).
-        let bitmapReps = image.representations.compactMap { $0 as? NSBitmapImageRep }
-        let rep = try #require(bitmapReps.first { $0.pixelsWide == 36 && $0.pixelsHigh == 36 })
-
-        func alphaAt(px x: Int, _ y: Int) -> CGFloat {
-            (rep.colorAt(x: x, y: y) ?? .clear).alphaComponent
-        }
-
-        func regionHasFill(xRange: ClosedRange<Int>, yRange: ClosedRange<Int>) -> Bool {
-            for y in yRange {
-                for x in xRange where alphaAt(px: x, y) > 0.05 {
-                    return true
-                }
-            }
-            return false
-        }
-
-        // Primary bar (top track) must have fill to prove the progress bar rendered.
-        #expect(regionHasFill(xRange: 3...33, yRange: 19...31))
-    }
-
-    @Test
-    func `copilot icon can use selected budget as secondary lane`() {
-        let snapshot = UsageSnapshot(
-            primary: RateWindow(usedPercent: 20, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            secondary: RateWindow(usedPercent: 30, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            extraRateWindows: [
-                NamedRateWindow(
-                    id: "copilot-budget-agent",
-                    title: "Budget - Copilot Agent Premium Requests",
-                    window: RateWindow(usedPercent: 65, windowMinutes: nil, resetsAt: nil, resetDescription: nil)),
-            ],
-            updatedAt: Date())
-
-        let remaining = IconRemainingResolver.resolvedRemaining(
-            snapshot: snapshot,
-            style: .copilot,
-            secondaryOverrideWindowID: "copilot-budget-agent")
-
-        #expect(remaining.primary == 80)
-        #expect(remaining.secondary == 35)
-    }
-
-    @Test
-    func `copying extra rate windows preserves subscription dates`() {
-        let expiresAt = Date(timeIntervalSince1970: 1_810_656_000)
-        let renewsAt = Date(timeIntervalSince1970: 1_810_569_600)
-        let ampUsage = AmpUsageDetails(
-            individualCredits: 12.5,
-            workspaceBalances: [AmpWorkspaceBalance(name: "Team", remaining: 7.25)])
+    func `copying identity preserves surviving payloads`() {
+        let updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
         let snapshot = UsageSnapshot(
             primary: nil,
             secondary: nil,
-            ampUsage: ampUsage,
-            subscriptionExpiresAt: expiresAt,
-            subscriptionRenewsAt: renewsAt,
-            updatedAt: Date(timeIntervalSince1970: 1_800_000_000))
+            subscriptionExpiresAt: updatedAt.addingTimeInterval(100),
+            subscriptionRenewsAt: updatedAt.addingTimeInterval(200),
+            updatedAt: updatedAt)
+        let identity = ProviderIdentitySnapshot(
+            providerID: .claude,
+            accountEmail: "test@example.com",
+            accountOrganization: "Example",
+            loginMethod: "API")
 
-        let copied = snapshot.with(extraRateWindows: [])
+        let copied = snapshot.withIdentity(identity)
 
-        #expect(copied.subscriptionExpiresAt == expiresAt)
-        #expect(copied.subscriptionRenewsAt == renewsAt)
-        #expect(copied.ampUsage == ampUsage)
+        #expect(copied.subscriptionExpiresAt == updatedAt.addingTimeInterval(100))
+        #expect(copied.subscriptionRenewsAt == updatedAt.addingTimeInterval(200))
+        #expect(copied.identity?.accountOrganization == "Example")
     }
 
     @Test
-    func `copilot icon falls back to chat lane when selected budget is unavailable`() {
-        let snapshot = UsageSnapshot(
-            primary: RateWindow(usedPercent: 20, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            secondary: RateWindow(usedPercent: 30, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
-            extraRateWindows: nil,
-            updatedAt: Date())
-
-        let remaining = IconRemainingResolver.resolvedRemaining(
-            snapshot: snapshot,
-            style: .copilot,
-            secondaryOverrideWindowID: "copilot-budget-agent")
-
-        #expect(remaining.primary == 80)
-        #expect(remaining.secondary == 70)
+    @MainActor
+    func `status icon accessibility uses percentage scale`() {
+        #expect(
+            StatusIconView.accessibilityPercentRemaining(50) ==
+                String(format: L("%d percent remaining"), 50))
     }
 
     @Test
@@ -248,6 +131,55 @@ struct CodexBarTests {
         let remaining = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, style: .codex)
         #expect(remaining.primary == 75)
         #expect(remaining.secondary == nil)
+    }
+
+    @Test
+    func `status overlays cut halos through the quota bar and keep glyphs visible`() throws {
+        let plain = IconRenderer.makeIcon(
+            primaryRemaining: 100,
+            weeklyRemaining: 100,
+            creditsRemaining: nil,
+            stale: false,
+            style: .combined,
+            statusIndicator: .none)
+        let plainRep = try #require(plain.representations.compactMap { $0 as? NSBitmapImageRep }.first {
+            $0.pixelsWide == 36 && $0.pixelsHigh == 36
+        })
+
+        func alpha(_ rep: NSBitmapImageRep, x: Int, y: Int) -> CGFloat {
+            (rep.colorAt(x: x, y: y) ?? .clear).alphaComponent
+        }
+
+        for indicator in [ProviderStatusIndicator.minor, .major] {
+            let marked = IconRenderer.makeIcon(
+                primaryRemaining: 100,
+                weeklyRemaining: 100,
+                creditsRemaining: nil,
+                stale: false,
+                style: .combined,
+                statusIndicator: indicator)
+            let markedRep = try #require(marked.representations.compactMap { $0 as? NSBitmapImageRep }.first {
+                $0.pixelsWide == 36 && $0.pixelsHigh == 36
+            })
+
+            var cutoutPixels = 0
+            var glyphPixels = 0
+            for y in 0..<markedRep.pixelsHigh {
+                for x in 0..<markedRep.pixelsWide {
+                    let plainAlpha = alpha(plainRep, x: x, y: y)
+                    let markedAlpha = alpha(markedRep, x: x, y: y)
+                    if plainAlpha > 0.5, markedAlpha < 0.05 {
+                        cutoutPixels += 1
+                    }
+                    if plainAlpha < 0.05, markedAlpha > 0.5 {
+                        glyphPixels += 1
+                    }
+                }
+            }
+
+            #expect(cutoutPixels >= 8, "Expected halo cutout pixels for \(indicator)")
+            #expect(glyphPixels >= 4, "Expected visible glyph pixels for \(indicator)")
+        }
     }
 
     @Test
@@ -314,59 +246,6 @@ struct CodexBarTests {
         }
 
         #expect(internalHoles >= 16) // at least one 4×4 eye block, but typically two eyes => 32
-    }
-
-    @Test
-    func `icon renderer warp eyes cut out at expected centers`() {
-        // Regression: Warp eyes should be tilted in-place and remain centered on the face.
-        let image = IconRenderer.makeIcon(
-            primaryRemaining: 50,
-            weeklyRemaining: 50,
-            creditsRemaining: nil,
-            stale: false,
-            style: .warp)
-
-        let bitmapReps = image.representations.compactMap { $0 as? NSBitmapImageRep }
-        let rep = bitmapReps.first(where: { $0.pixelsWide == 36 && $0.pixelsHigh == 36 })
-        #expect(rep != nil)
-        guard let rep else { return }
-
-        func alphaAt(px x: Int, _ y: Int) -> CGFloat {
-            (rep.colorAt(x: x, y: y) ?? .clear).alphaComponent
-        }
-
-        func minAlphaNear(px cx: Int, _ cy: Int, radius: Int) -> CGFloat {
-            var minAlpha: CGFloat = 1.0
-            let x0 = max(0, cx - radius)
-            let x1 = min(rep.pixelsWide - 1, cx + radius)
-            let y0 = max(0, cy - radius)
-            let y1 = min(rep.pixelsHigh - 1, cy + radius)
-            for y in y0...y1 {
-                for x in x0...x1 {
-                    minAlpha = min(minAlpha, alphaAt(px: x, y))
-                }
-            }
-            return minAlpha
-        }
-
-        func minAlphaNearEitherOrigin(px cx: Int, _ cy: Int, radius: Int) -> CGFloat {
-            let flippedY = (rep.pixelsHigh - 1) - cy
-            return min(minAlphaNear(px: cx, cy, radius: radius), minAlphaNear(px: cx, flippedY, radius: radius))
-        }
-
-        // These are the center pixels for the two Warp eye cutouts in the top bar (36×36 canvas).
-        // If the eyes are rotated around the wrong origin, these points will not be fully punched out.
-        let leftEyeCenter = (x: 11, y: 25)
-        let rightEyeCenter = (x: 25, y: 25)
-
-        // The eye ellipse height is even (8 px), so the exact center can land between pixel rows.
-        // Assert via a small neighborhood search rather than a single pixel.
-        #expect(minAlphaNearEitherOrigin(px: leftEyeCenter.x, leftEyeCenter.y, radius: 2) < 0.05)
-        #expect(minAlphaNearEitherOrigin(px: rightEyeCenter.x, rightEyeCenter.y, radius: 2) < 0.05)
-
-        // Sanity: nearby top bar track area should remain visible (not everything is transparent).
-        let midAlpha = max(alphaAt(px: 18, 25), alphaAt(px: 18, (rep.pixelsHigh - 1) - 25))
-        #expect(midAlpha > 0.05)
     }
 
     @Test

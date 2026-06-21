@@ -41,6 +41,8 @@ struct StatusItemControllerShutdownTests {
         controller.menuWillOpen(menu)
         let key = ObjectIdentifier(menu)
         controller.menuRefreshTasks[key] = Task { try? await Task.sleep(for: .seconds(30)) }
+        controller.menuReadinessSignatures[key] = "readiness"
+        controller.menuIdentitySignatures[key] = "identity"
 
         #expect(controller.openMenus[key] === menu)
         #expect(controller.mergedMenu != nil)
@@ -52,6 +54,8 @@ struct StatusItemControllerShutdownTests {
         #expect(controller.hasPreparedForAppShutdown)
         #expect(controller.openMenus.isEmpty)
         #expect(controller.menuRefreshTasks.isEmpty)
+        #expect(controller.menuReadinessSignatures.isEmpty)
+        #expect(controller.menuIdentitySignatures.isEmpty)
         #expect(controller.providerSwitcherShortcutEventMonitor == nil)
         #expect(controller.statusItem.menu == nil)
         #expect(controller.statusItems.isEmpty)
@@ -118,13 +122,6 @@ struct StatusItemControllerShutdownTests {
     }
 
     private func makeSettings() -> SettingsStore {
-        let suite = "StatusItemControllerShutdownTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return SettingsStore(
-            userDefaults: defaults,
-            configStore: testConfigStore(suiteName: suite),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        testSettingsStore(suiteName: "StatusItemControllerShutdownTests")
     }
 }

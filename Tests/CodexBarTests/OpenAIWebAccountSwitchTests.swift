@@ -7,10 +7,7 @@ import Testing
 struct OpenAIWebAccountSwitchTests {
     @Test
     func `clears dashboard when codex email changes`() {
-        let settings = SettingsStore(
-            configStore: testConfigStore(suiteName: "OpenAIWebAccountSwitchTests-clears"),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = SettingsStore(configStore: testConfigStore(suiteName: "OpenAIWebAccountSwitchTests-clears"))
         settings.refreshFrequency = .manual
 
         let store = UsageStore(
@@ -36,10 +33,7 @@ struct OpenAIWebAccountSwitchTests {
 
     @Test
     func `keeps dashboard when codex email stays same`() {
-        let settings = SettingsStore(
-            configStore: testConfigStore(suiteName: "OpenAIWebAccountSwitchTests-keeps"),
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore())
+        let settings = SettingsStore(configStore: testConfigStore(suiteName: "OpenAIWebAccountSwitchTests-keeps"))
         settings.refreshFrequency = .manual
 
         let store = UsageStore(
@@ -60,5 +54,35 @@ struct OpenAIWebAccountSwitchTests {
 
         store.handleOpenAIWebTargetEmailChangeIfNeeded(targetEmail: "a@example.com")
         #expect(store.openAIDashboard == dash)
+    }
+
+    @Test
+    func `clears dashboard when profile source changes with the same email`() {
+        let settings =
+            SettingsStore(configStore: testConfigStore(suiteName: "OpenAIWebAccountSwitchTests-profile-source"))
+        let store = UsageStore(
+            fetcher: UsageFetcher(),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+
+        store.handleOpenAIWebTargetEmailChangeIfNeeded(
+            targetEmail: "shared@example.com",
+            targetScope: .profileHome("/tmp/codex-profile-a"))
+        store.openAIDashboard = OpenAIDashboardSnapshot(
+            signedInEmail: "shared@example.com",
+            codeReviewRemainingPercent: 100,
+            creditEvents: [],
+            dailyBreakdown: [],
+            usageBreakdown: [],
+            creditsPurchaseURL: nil,
+            updatedAt: Date())
+
+        store.handleOpenAIWebTargetEmailChangeIfNeeded(
+            targetEmail: "shared@example.com",
+            targetScope: .profileHome("/tmp/codex-profile-b"))
+
+        #expect(store.openAIDashboard == nil)
+        #expect(store.openAIWebAccountDidChange)
+        #expect(store.openAIDashboardRequiresLogin)
     }
 }

@@ -11,24 +11,9 @@ final class StatusMenuTokenAccountSwitcherTests: XCTestCase {
         StatusItemController.setMenuRefreshEnabledForTesting(false)
     }
 
-    private func makeStatusBarForTesting() -> NSStatusBar {
-        let env = ProcessInfo.processInfo.environment
-        if env["GITHUB_ACTIONS"] == "true" || env["CI"] == "true" {
-            return .system
-        }
-        return NSStatusBar()
-    }
-
     private func makeSettings() -> SettingsStore {
-        let suite = "StatusMenuTokenAccountSwitcherTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        let configStore = testConfigStore(suiteName: suite)
-        let settings = SettingsStore(
-            userDefaults: defaults,
-            configStore: configStore,
-            zaiTokenStore: NoopZaiTokenStore(),
-            syntheticTokenStore: NoopSyntheticTokenStore(),
+        let settings = testSettingsStore(
+            suiteName: "StatusMenuTokenAccountSwitcherTests",
             tokenAccountStore: InMemoryTokenAccountStore())
         settings.providerDetectionCompleted = true
         return settings
@@ -116,7 +101,7 @@ final class StatusMenuTokenAccountSwitcherTests: XCTestCase {
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
         defer { controller.releaseStatusItemsForTesting() }
 
         let refreshTask = Task { @MainActor in
@@ -146,16 +131,16 @@ final class StatusMenuTokenAccountSwitcherTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(startedCallCount, 2)
     }
 
-    func test_multiAccountSegmentedLayoutShowsCopilotSwitcher() throws {
+    func test_multiAccountSegmentedLayoutShowsClaudeSwitcher() throws {
         self.disableMenuCardsForTesting()
         let settings = self.makeSettings()
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.mergeIcons = false
         settings.multiAccountMenuLayout = .segmented
-        self.enableOnly(.copilot, settings)
-        settings.addTokenAccount(provider: .copilot, label: "Primary", token: "gh_primary")
-        settings.addTokenAccount(provider: .copilot, label: "Secondary", token: "gh_secondary")
+        self.enableOnlyClaude(settings)
+        settings.addTokenAccount(provider: .claude, label: "Primary", token: "Bearer sk-ant-oat-primary")
+        settings.addTokenAccount(provider: .claude, label: "Secondary", token: "Bearer sk-ant-oat-secondary")
 
         let fetcher = UsageFetcher()
         let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
@@ -165,31 +150,31 @@ final class StatusMenuTokenAccountSwitcherTests: XCTestCase {
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
         defer { controller.releaseStatusItemsForTesting() }
 
-        let menu = controller.makeMenu(for: .copilot)
+        let menu = controller.makeMenu(for: .claude)
         controller.menuWillOpen(menu)
 
         _ = try XCTUnwrap(menu.items.compactMap { $0.view as? TokenAccountSwitcherView }.first)
         XCTAssertEqual(self.representedIDs(in: menu).filter { $0.hasPrefix("menuCard") }, ["menuCard"])
     }
 
-    func test_multiAccountStackedLayoutShowsCopilotCards() {
+    func test_multiAccountStackedLayoutShowsClaudeCards() {
         self.disableMenuCardsForTesting()
         let settings = self.makeSettings()
         settings.statusChecksEnabled = false
         settings.refreshFrequency = .manual
         settings.mergeIcons = false
         settings.multiAccountMenuLayout = .stacked
-        self.enableOnly(.copilot, settings)
-        settings.addTokenAccount(provider: .copilot, label: "Primary", token: "gh_primary")
-        settings.addTokenAccount(provider: .copilot, label: "Secondary", token: "gh_secondary")
-        let accounts = settings.tokenAccounts(for: .copilot)
+        self.enableOnlyClaude(settings)
+        settings.addTokenAccount(provider: .claude, label: "Primary", token: "Bearer sk-ant-oat-primary")
+        settings.addTokenAccount(provider: .claude, label: "Secondary", token: "Bearer sk-ant-oat-secondary")
+        let accounts = settings.tokenAccounts(for: .claude)
 
         let fetcher = UsageFetcher()
         let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
-        store.accountSnapshots[.copilot] = accounts.enumerated().map { index, account in
+        store.accountSnapshots[.claude] = accounts.enumerated().map { index, account in
             TokenAccountUsageSnapshot(
                 account: account,
                 snapshot: self.snapshot(percent: Double(10 + index)),
@@ -202,10 +187,10 @@ final class StatusMenuTokenAccountSwitcherTests: XCTestCase {
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
         defer { controller.releaseStatusItemsForTesting() }
 
-        let menu = controller.makeMenu(for: .copilot)
+        let menu = controller.makeMenu(for: .claude)
         controller.menuWillOpen(menu)
 
         XCTAssertNil(menu.items.compactMap { $0.view as? TokenAccountSwitcherView }.first)
@@ -248,12 +233,15 @@ final class StatusMenuTokenAccountSwitcherTests: XCTestCase {
         settings.refreshFrequency = .manual
         settings.mergeIcons = false
         settings.multiAccountMenuLayout = .stacked
-        self.enableOnly(.copilot, settings)
+        self.enableOnlyClaude(settings)
         for index in 0..<8 {
-            settings.addTokenAccount(provider: .copilot, label: "Account \(index)", token: "gh_\(index)")
+            settings.addTokenAccount(
+                provider: .claude,
+                label: "Account \(index)",
+                token: "Bearer sk-ant-oat-\(index)")
         }
-        settings.setActiveTokenAccountIndex(7, for: .copilot)
-        let accounts = settings.tokenAccounts(for: .copilot)
+        settings.setActiveTokenAccountIndex(7, for: .claude)
+        let accounts = settings.tokenAccounts(for: .claude)
         let staleAccounts = (0..<2).map { index in
             ProviderTokenAccount(
                 id: UUID(),
@@ -279,17 +267,17 @@ final class StatusMenuTokenAccountSwitcherTests: XCTestCase {
                 error: nil,
                 sourceLabel: "current")
         }
-        store.accountSnapshots[.copilot] = staleSnapshots + currentSnapshots
+        store.accountSnapshots[.claude] = staleSnapshots + currentSnapshots
         let controller = StatusItemController(
             store: store,
             settings: settings,
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
         defer { controller.releaseStatusItemsForTesting() }
 
-        let menu = controller.makeMenu(for: .copilot)
+        let menu = controller.makeMenu(for: .claude)
         controller.menuWillOpen(menu)
 
         XCTAssertNil(menu.items.compactMap { $0.view as? TokenAccountSwitcherView }.first)
@@ -331,7 +319,7 @@ final class StatusMenuTokenAccountSwitcherTests: XCTestCase {
             account: fetcher.loadAccountInfo(),
             updater: DisabledUpdaterController(),
             preferencesSelection: PreferencesSelection(),
-            statusBar: self.makeStatusBarForTesting())
+            statusBar: testStatusBar())
         defer { controller.releaseStatusItemsForTesting() }
 
         let menu = controller.makeMenu()
@@ -354,6 +342,125 @@ final class StatusMenuTokenAccountSwitcherTests: XCTestCase {
 
         await blocker.waitUntilStarted(count: 1)
         await blocker.resumeAll(with: .success(self.snapshot(percent: 17)))
+        await selectionTask.value
+        for _ in 0..<20 where rebuildCount < 2 {
+            await Task.yield()
+        }
+        XCTAssertEqual(rebuildCount, 2)
+    }
+
+    func test_tokenAccountSwitchUsesSelectedAccountCacheWhileRefreshIsInFlight() async throws {
+        self.disableMenuCardsForTesting()
+        StatusItemController.setMenuRefreshEnabledForTesting(true)
+        defer { StatusItemController.setMenuRefreshEnabledForTesting(false) }
+
+        let settings = self.makeSettings()
+        settings.statusChecksEnabled = false
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = false
+        settings.multiAccountMenuLayout = .segmented
+        self.enableOnlyClaude(settings)
+        settings.addTokenAccount(provider: .claude, label: "Primary", token: "Bearer sk-ant-oat-primary")
+        settings.addTokenAccount(provider: .claude, label: "Secondary", token: "Bearer sk-ant-oat-secondary")
+        settings.setActiveTokenAccountIndex(0, for: .claude)
+        let accounts = settings.tokenAccounts(for: .claude)
+
+        let fetcher = UsageFetcher()
+        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
+        store.snapshots[.claude] = self.snapshot(percent: 11)
+        store.lastKnownResetSnapshots[.claude] = self.snapshot(percent: 11)
+        store.errors[.claude] = "primary-error"
+        store.lastSourceLabels[.claude] = "primary-cache"
+        store.accountSnapshots[.claude] = [
+            TokenAccountUsageSnapshot(
+                account: accounts[0],
+                snapshot: self.snapshot(percent: 11),
+                error: nil,
+                sourceLabel: "primary-cache"),
+            TokenAccountUsageSnapshot(
+                account: accounts[1],
+                snapshot: self.snapshot(percent: 72),
+                error: nil,
+                sourceLabel: "secondary-cache"),
+        ]
+        let blocker = BlockingTokenAccountFetchStrategy()
+        self.installBlockingClaudeProvider(on: store, blocker: blocker)
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: testStatusBar())
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let menu = controller.makeMenu(for: .claude)
+        controller.menuWillOpen(menu)
+        let switcher = try XCTUnwrap(menu.items.compactMap { $0.view as? TokenAccountSwitcherView }.first)
+
+        let selectionTask = try XCTUnwrap(switcher._test_select(index: 1))
+
+        XCTAssertEqual(store.snapshot(for: .claude)?.primary?.usedPercent, 72)
+        XCTAssertEqual(store.lastKnownResetSnapshots[.claude]?.primary?.usedPercent, 72)
+        XCTAssertNil(store.errors[.claude])
+        XCTAssertEqual(store.sourceLabel(for: .claude), "secondary-cache")
+
+        await blocker.waitUntilStarted(count: 1)
+        await blocker.resumeAll(with: .success(self.snapshot(percent: 45)))
+        await selectionTask.value
+    }
+
+    func test_tokenAccountSwitchClearsPreviousAccountSnapshotWithoutSelectedCache() async throws {
+        self.disableMenuCardsForTesting()
+
+        let settings = self.makeSettings()
+        settings.statusChecksEnabled = false
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = false
+        settings.multiAccountMenuLayout = .segmented
+        self.enableOnlyClaude(settings)
+        settings.addTokenAccount(provider: .claude, label: "Primary", token: "Bearer sk-ant-oat-primary")
+        settings.addTokenAccount(provider: .claude, label: "Secondary", token: "Bearer sk-ant-oat-secondary")
+        settings.setActiveTokenAccountIndex(0, for: .claude)
+        let accounts = settings.tokenAccounts(for: .claude)
+
+        let fetcher = UsageFetcher()
+        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
+        store.snapshots[.claude] = self.snapshot(percent: 11)
+        store.lastKnownResetSnapshots[.claude] = self.snapshot(percent: 11)
+        store.errors[.claude] = "primary-error"
+        store.lastSourceLabels[.claude] = "primary-cache"
+        store.accountSnapshots[.claude] = [
+            TokenAccountUsageSnapshot(
+                account: accounts[0],
+                snapshot: self.snapshot(percent: 11),
+                error: nil,
+                sourceLabel: "primary-cache"),
+        ]
+        let blocker = BlockingTokenAccountFetchStrategy()
+        self.installBlockingClaudeProvider(on: store, blocker: blocker)
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: testStatusBar())
+        defer { controller.releaseStatusItemsForTesting() }
+
+        let menu = controller.makeMenu(for: .claude)
+        controller.menuWillOpen(menu)
+        let switcher = try XCTUnwrap(menu.items.compactMap { $0.view as? TokenAccountSwitcherView }.first)
+
+        let selectionTask = try XCTUnwrap(switcher._test_select(index: 1))
+
+        XCTAssertNil(store.snapshot(for: .claude))
+        XCTAssertNil(store.lastKnownResetSnapshots[.claude])
+        XCTAssertNil(store.errors[.claude])
+        XCTAssertNil(store.lastSourceLabels[.claude])
+
+        await blocker.waitUntilStarted(count: 1)
+        await blocker.resumeAll(with: .success(self.snapshot(percent: 45)))
         await selectionTask.value
     }
 }

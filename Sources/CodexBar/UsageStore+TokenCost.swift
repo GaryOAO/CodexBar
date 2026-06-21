@@ -61,27 +61,15 @@ extension UsageStore {
     }
 
     func tokenSnapshot(
-        fromProviderSnapshot snapshot: UsageSnapshot?,
-        provider: UsageProvider)
+        fromProviderSnapshot _: UsageSnapshot?,
+        provider _: UsageProvider)
         -> CostUsageTokenSnapshot?
     {
-        switch provider {
-        case .openai:
-            snapshot?.openAIAPIUsage?.toCostUsageTokenSnapshot()
-        case .mistral:
-            snapshot?.mistralUsage?.toCostUsageTokenSnapshot(historyDays: self.settings.costUsageHistoryDays)
-        default:
-            nil
-        }
+        nil
     }
 
-    nonisolated static func tokenCostRequiresProviderSnapshot(_ provider: UsageProvider) -> Bool {
-        switch provider {
-        case .mistral, .openai:
-            true
-        default:
-            false
-        }
+    nonisolated static func tokenCostRequiresProviderSnapshot(_: UsageProvider) -> Bool {
+        false
     }
 
     nonisolated static func costUsageCacheDirectory(
